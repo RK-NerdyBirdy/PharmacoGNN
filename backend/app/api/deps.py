@@ -4,7 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import InvalidTokenError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,14 +12,24 @@ from app.core.security import decode_access_token
 from app.db.session import get_db_session
 from app.models.user import User, UserRole
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+# OAuth2PasswordBearer used to sit here, but its Swagger "Authorize" dialog
+# submits a username/password form directly to tokenUrl -- which doesn't
+# match /auth/login's actual contract (a JSON {email, password} body), so
+# the built-in flow never worked. HTTPBearer instead renders a single
+# "paste your token" field in Swagger, which is what /auth/login actually
+# produces: call it separately (its own "Try it out" in /docs, or curl),
+# copy the access_token, and paste just that (no "Bearer " prefix) here.
+bearer_scheme = HTTPBearer(
+    auto_error=False,
+    description="Paste the access_token from POST /auth/login (just the raw token, not prefixed with 'Bearer ').",
+)
 
 # Re-exported so routers only ever import from app.api.deps, never db.session directly.
 get_db = get_db_session
 
 
 async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
     credentials_error = HTTPException(
@@ -27,8 +37,14 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    # auto_error=False on HTTPBearer above means a missing header lands here
+    # as None rather than HTTPBearer's own default of 403 -- kept as a
+    # uniform 401 either way, matching what's documented/tested.
+    if credentials is None:
+        raise credentials_error
+
     try:
-        payload = decode_access_token(token)
+        payload = decode_access_token(credentials.credentials)
     except InvalidTokenError as exc:
         raise credentials_error from exc
 
