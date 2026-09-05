@@ -38,6 +38,31 @@ class Settings(BaseSettings):
     # Phase 2's predict/regimen endpoint flags a pair as "high risk" above this.
     HIGH_RISK_THRESHOLD: float = 75.0
 
+    # --- Phase 3: substitution search ---
+    # How many nearest-by-cosine-similarity candidates to re-score before picking
+    # the top N by risk reduction; keep this well above SUBSTITUTION_TOP_N since
+    # most similar drugs won't actually reduce risk against the fixed partner.
+    SUBSTITUTION_CANDIDATE_POOL_SIZE: int = 20
+    SUBSTITUTION_TOP_N: int = 3
+
+    # --- Phase 3: OpenRouter LLM explainer ---
+    # Empty by default so Phases 1/2 keep working without it configured;
+    # llm_explainer raises a clear error at call time if this is unset.
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    OPENROUTER_MODEL: str = "anthropic/claude-3.5-sonnet"
+    OPENROUTER_TIMEOUT_SECONDS: float = 30.0
+
+    # --- CORS ---
+    # Comma-separated allow-list (not a JSON list) so a plain .env/docker-compose
+    # env var is easy to edit: CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+    # Defaults to the frontend's planned local dev port.
+    CORS_ORIGINS: str = "http://localhost:3000"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
 
 @lru_cache
 def get_settings() -> Settings:
