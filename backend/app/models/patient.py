@@ -1,0 +1,127 @@
+from __future__ import annotations
+
+import datetime as dt
+import enum
+import uuid
+from typing import TYPE_CHECKING
+
+from sqlalchemy import Boolean, Date, Enum, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base import Base, EncryptedString, EncryptedText, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.audit import AuditLog
+    from app.models.user import User
+
+
+class BiologicalSex(str, enum.Enum):
+    FEMALE = "FEMALE"
+    MALE = "MALE"
+    INTERSEX = "INTERSEX"
+
+
+class PatientProfile(TimestampMixin, Base):
+    """One-to-one PHI record for a PATIENT-role user.
+
+    legal_name / date_of_birth / medical_record_number / emergency_contact are
+    encrypted at rest (see app.db.base.EncryptedString/EncryptedText) and are
+    therefore NOT queryable or unique-constrainable at the DB level — see the
+    note in app.core.security on blind indexes if that's ever needed.
+
+    biological_sex and age are kept as clean, indexed columns on purpose:
+    Phase 2's GNN inference path needs to filter/stratify on them in bulk
+    without decrypting a row per lookup.
+    """
+
+    __tablename__ = "patient_profiles"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+
+    # --- Encrypted at rest (AES-256-GCM via app.core.security) ---
+    legal_name: Mapped[str] = mapped_column(EncryptedString, nullable=False)
+    date_of_birth: Mapped[str] = mapped_column(EncryptedString, nullable=False)
+    medical_record_number: Mapped[str] = mapped_column(EncryptedString, nullable=False)
+    emergency_contact: Mapped[str | None] = mapped_column(EncryptedText, nullable=True)
+
+    # --- Clean, indexed demographic columns ---
+    biological_sex: Mapped[BiologicalSex] = mapped_column(
+        Enum(BiologicalSex, name="biological_sex", native_enum=True), nullable=False, index=True
+    )
+    age: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+
+    user: Mapped["User"] = relationship(back_populates="patient_profile")
+    conditions: Mapped[list["PatientCondition"]] = relationship(
+        back_populates="patient", cascade="all, delete-orphan"
+    )
+    regimens: Mapped[list["PatientRegimen"]] = relationship(
+        back_populates="patient", cascade="all, delete-orphan"
+    )
+    audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="target_patient")
+
+
+class PatientCondition(TimestampMixin, Base):
+    """Diagnosed condition used for drug-disease collision screening (Phase 2).
+
+    Deliberately NOT field-encrypted like PatientProfile's columns: Phase 2
+    cross-references condition_name against active regimens in bulk, which
+    isn't feasible against non-deterministic ciphertext. Access is instead
+    protected by RBAC + the AuditLog trail on the parent patient profile.
+    """
+
+    __tablename__ = "patient_conditions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    patient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("patient_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    condition_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    icd10_code: Mapped[str | None] = mapped_column(String(16), nullable=True, index=True)
+    diagnosed_date: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    patient: Mapped["PatientProfile"] = relationship(back_populates="conditions")
+
+
+class PatientRegimen(TimestampMixin, Base):
+    """One prescribed compound in a patient's drug cart.
+
+    end_date IS NULL means the medication is currently active; Phase 2's
+    regimen-matrix endpoint operates over the set of rows where end_date is
+    null (or in the future).
+    """
+
+    __tablename__ = "patient_regimens"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    patient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("patient_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    pubchem_cid: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    drug_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    dosage: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    start_date: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[dt.date | None] = mapped_column(Date, nullable=True, index=True)
+    prescriber_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    patient: Mapped["PatientProfile"] = relationship(back_populates="regimens")
+    prescriber: Mapped["User | None"] = relationship(foreign_keys=[prescriber_id])

@@ -1,1 +1,14 @@
+/tmp
+
+# Python
+__pycache__/
+.venv/
+venv/
+*.pyc
+
+# Environment secrets
+.env
+backend/.env
+
+# Node
 node_modules/

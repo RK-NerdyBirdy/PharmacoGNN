@@ -1,0 +1,252 @@
+{
+  "C0040034": {
+    "name": "thrombocytopenia",
+    "female_weighted": true,
+    "rel_idx": 0
+  },
+  "C0003811": {
+    "name": "Arrhythmia",
+    "female_weighted": true,
+    "rel_idx": 1
+  },
+  "C0034065": {
+    "name": "Embolism pulmonary",
+    "female_weighted": true,
+    "rel_idx": 2
+  },
+  "C0149871": {
+    "name": "deep vein thromboses",
+    "female_weighted": true,
+    "rel_idx": 3
+  },
+  "C0042487": {
+    "name": "phlebothrombosis",
+    "female_weighted": true,
+    "rel_idx": 4
+  },
+  "C0085605": {
+    "name": "Hepatic failure",
+    "female_weighted": true,
+    "rel_idx": 5
+  },
+  "C0029456": {
+    "name": "osteoporosis",
+    "female_weighted": true,
+    "rel_idx": 6
+  },
+  "C0035522": {
+    "name": "rib fracture",
+    "female_weighted": true,
+    "rel_idx": 7
+  },
+  "C0019557": {
+    "name": "hip fracture",
+    "female_weighted": true,
+    "rel_idx": 8
+  },
+  "C0262431": {
+    "name": "Spinal Compression Fracture",
+    "female_weighted": true,
+    "rel_idx": 9
+  },
+  "C0159877": {
+    "name": "ankle fracture",
+    "female_weighted": true,
+    "rel_idx": 10
+  },
+  "C0080179": {
+    "name": "Spinal fracture",
+    "female_weighted": true,
+    "rel_idx": 11
+  },
+  "C0016658": {
+    "name": "bone fracture",
+    "female_weighted": true,
+    "rel_idx": 12
+  },
+  "C0015802": {
+    "name": "femur fracture",
+    "female_weighted": true,
+    "rel_idx": 13
+  },
+  "C0034155": {
+    "name": "thrombotic microangiopathy",
+    "female_weighted": true,
+    "rel_idx": 14
+  },
+  "C0013922": {
+    "name": "embolism",
+    "female_weighted": true,
+    "rel_idx": 15
+  },
+  "C0016663": {
+    "name": "Bone Fracture Spontaneous",
+    "female_weighted": true,
+    "rel_idx": 16
+  },
+  "C0435630": {
+    "name": "wrist fracture",
+    "female_weighted": true,
+    "rel_idx": 17
+  },
+  "C0149531": {
+    "name": "fractured pelvis NOS",
+    "female_weighted": true,
+    "rel_idx": 18
+  },
+  "C0020162": {
+    "name": "humerus fracture",
+    "female_weighted": true,
+    "rel_idx": 19
+  },
+  "C1510431": {
+    "name": "Superficial thrombophlebitis",
+    "female_weighted": true,
+    "rel_idx": 20
+  },
+  "C0040046": {
+    "name": "Thrombophlebitis",
+    "female_weighted": true,
+    "rel_idx": 21
+  },
+  "C0043117": {
+    "name": "idiopathic thrombocytopenic purpura",
+    "female_weighted": true,
+    "rel_idx": 22
+  },
+  "C0015806": {
+    "name": "femoral neck fracture",
+    "female_weighted": true,
+    "rel_idx": 23
+  },
+  "C0007780": {
+    "name": "cerebral artery embolism",
+    "female_weighted": true,
+    "rel_idx": 24
+  },
+  "C0079035": {
+    "name": "Bradyarrhythmia",
+    "female_weighted": true,
+    "rel_idx": 25
+  },
+  "C0155773": {
+    "name": "portal vein thrombosis",
+    "female_weighted": true,
+    "rel_idx": 26
+  },
+  "C0016665": {
+    "name": "fracture nonunion",
+    "female_weighted": true,
+    "rel_idx": 27
+  },
+  "C0079102": {
+    "name": "Cerebral thrombosis",
+    "female_weighted": true,
+    "rel_idx": 28
+  },
+  "C0262414": {
+    "name": "cervical vertebral fracture",
+    "female_weighted": true,
+    "rel_idx": 29
+  },
+  "C0013928": {
+    "name": "fat embolism",
+    "female_weighted": true,
+    "rel_idx": 30
+  },
+  "C1527411": {
+    "name": "retinal vein thrombosis",
+    "female_weighted": true,
+    "rel_idx": 31
+  },
+  "C0032807": {
+    "name": "Post thrombotic syndrome",
+    "female_weighted": true,
+    "rel_idx": 32
+  },
+  "C0040028": {
+    "name": "Essential Thrombocythemia",
+    "female_weighted": true,
+    "rel_idx": 33
+  },
+  "C0238454": {
+    "name": "cavernous sinus thrombosis",
+    "female_weighted": true,
+    "rel_idx": 34
+  },
+  "C0020649": {
+    "name": "arterial pressure NOS decreased",
+    "female_weighted": false,
+    "rel_idx": 35
+  },
+  "C0002871": {
+    "name": "anaemia",
+    "female_weighted": false,
+    "rel_idx": 36
+  },
+  "C0013404": {
+    "name": "Difficulty breathing",
+    "female_weighted": false,
+    "rel_idx": 37
+  },
+  "C0027497": {
+    "name": "nausea",
+    "female_weighted": false,
+    "rel_idx": 38
+  },
+  "C0032285": {
+    "name": "neumonia",
+    "female_weighted": false,
+    "rel_idx": 39
+  },
+  "C0015672": {
+    "name": "Fatigue",
+    "female_weighted": false,
+    "rel_idx": 40
+  },
+  "C0030193": {
+    "name": "Pain",
+    "female_weighted": false,
+    "rel_idx": 41
+  },
+  "C0011991": {
+    "name": "diarrhea",
+    "female_weighted": false,
+    "rel_idx": 42
+  },
+  "C0004093": {
+    "name": "asthenia",
+    "female_weighted": false,
+    "rel_idx": 43
+  },
+  "C0042963": {
+    "name": "emesis",
+    "female_weighted": false,
+    "rel_idx": 44
+  },
+  "C0085649": {
+    "name": "edema extremities",
+    "female_weighted": false,
+    "rel_idx": 45
+  },
+  "C0015967": {
+    "name": "body temperature increased",
+    "female_weighted": false,
+    "rel_idx": 46
+  },
+  "C0008033": {
+    "name": "pleural pain",
+    "female_weighted": false,
+    "rel_idx": 47
+  },
+  "C0000737": {
+    "name": "abdominal pain",
+    "female_weighted": false,
+    "rel_idx": 48
+  },
+  "C0398353": {
+    "name": "Hypoventilation",
+    "female_weighted": false,
+    "rel_idx": 49
+  }
+}
