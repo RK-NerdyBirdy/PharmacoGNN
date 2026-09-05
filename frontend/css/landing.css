@@ -1,4 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Bevan&family=Roboto+Flex:opsz,wght@8..144,100..1000&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fredoka+One&display=swap');
+.landing-body,.landing-body *{font-family:'Fredoka One',sans-serif;font-weight:400}.intro-copy h1{font-family:'Roboto Flex','Fredoka One',sans-serif}.headline-letter{font-family:'Roboto Flex','Fredoka One',sans-serif}
+.story-half span{font-family:'Bevan',Georgia,serif;font-weight:400}.landing-nav nav a,.landing-nav nav button{font-size:15px}
 .landing-body{--bg-paper:#fff4f8;--ink:#43192e;--ink-soft:#876577;--magenta-deep:#b52360;background:var(--bg-paper)}
 .landing-story{height:300svh;position:relative}.story-stage{height:100svh;min-height:620px;position:sticky;top:0;overflow:hidden;isolation:isolate;--open:0;--intro:1;--reveal:0;--cards:0;--wave-out:0}
 .landing-nav{position:absolute;z-index:10;left:4.44%;right:4.44%;top:1.8%;height:7.4%;display:flex;align-items:flex-start;justify-content:space-between;border-bottom:1px solid #eacad7}.landing-nav .brand{font-size:18px;margin-top:13px;gap:10px}.landing-nav .brand-toggle{width:28px;height:14px;padding:2px;background:linear-gradient(90deg,#b52360,#f3a5c0)}.landing-nav .brand-toggle-dot{width:10px;height:10px;background:#f5d1df}.landing-nav nav{display:flex;gap:38px;margin:auto 66px auto auto;align-self:flex-start}.landing-nav nav a,.landing-nav nav button{font:700 10px Inter,Arial,sans-serif;text-decoration:none;color:var(--ink);border:0;background:none;cursor:pointer;padding:16px 0}.landing-nav .btn{font:700 12px Inter,Arial,sans-serif;letter-spacing:.02em;padding:12px 27px;background:#b52360}
@@ -34,3 +37,12 @@
 .paper-waves{opacity:clamp(0,calc(1 - var(--open,0)*1.5),1)}
 .reveal-copy h2{font-size:clamp(34px,4.4vw,62px);font-weight:700;font-variation-settings:'wght' 700,'opsz' 40}.reveal-copy h2 strong{font-weight:850}
 .reveal-copy h2 .pink-word{color:#b52360;font-weight:800}
+
+/* Final landing typography: the variable headline keeps its hover animation. */
+.landing-nav .brand,.landing-nav .brand *{font-family:'Fredoka',sans-serif!important;font-weight:400!important}.landing-nav nav a,.landing-nav nav button{font:400 15px/1 'Fredoka',sans-serif!important;padding:18px 0!important}.landing-nav .btn{font:400 14px/1 'Fredoka',sans-serif!important}.story-half span{font-family:Bevan,Georgia,serif!important;font-weight:400!important}.intro-copy h1,.intro-copy h1 .headline-letter,.reveal-copy h2,.reveal-copy h2 .headline-letter{font-family:'Roboto Flex',sans-serif!important;font-weight:400!important}.headline-line:first-child .headline-letter:nth-child(n+18),.headline-line:last-child .headline-letter:nth-child(n+13),.reveal-copy h2 .pink-word{color:#b52360!important;font-weight:700!important}
+
+/* Fredoka One is the site font; only the capsule lettering keeps its original Bevan face. */
+.landing-body,.landing-body *{font-family:'Fredoka',sans-serif!important;font-weight:400!important}.story-half span{font-family:Bevan,Georgia,serif!important}.intro-copy h1,.intro-copy h1 .headline-letter,.reveal-copy h2,.reveal-copy h2 .headline-letter{font-family:'Fredoka',sans-serif!important;font-variation-settings:normal!important}.headline-letter{transition:font-size 120ms linear,letter-spacing 120ms linear}.headline-letter:hover{font-size:1.07em;letter-spacing:.01em}
+
+/* The compact header uses the lighter sibling face for readable navigation. */
+.landing-nav .brand,.landing-nav .brand *,.landing-nav nav a,.landing-nav nav button,.landing-nav .btn{font-family:'Fredoka',sans-serif!important;font-weight:400!important}

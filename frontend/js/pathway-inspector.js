@@ -1,10 +1,10 @@
 (function () {
   const inspectorData = {
-    pageHeading: 'Follow the signal. Inspect the evidence.',
-    pageSubhead: 'A model-associated pathway explains a prediction; it does not establish causality.',
+    pageHeading: 'Amitriptyline × citalopram',
+    pageSubhead: 'Score 82 / 100',
 
     pair: { label: 'Amitriptyline × citalopram', score: 82, scoreMax: 100 },
-    findAlternativesLabel: 'Find alternatives',
+    findAlternativesLabel: 'Find alternatives →',
     pathwayFootnote: 'Select a node to inspect its source and limitations.',
     evidenceButtonLabel: 'View evidence details',
     nodePillLabel: 'Evidence inspection',
