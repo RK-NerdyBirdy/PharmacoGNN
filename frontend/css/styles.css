@@ -1,18 +1,18 @@
 :root {
-  --bg-paper: #fdeef2;
-  --ink: #2b0f1a;
-  --ink-soft: #7a6d72;
-  --pink-pale: #f9d7e2;
-  --pink-tag-bg: #f8cfe0;
-  --pink-tag-text: #b21458;
-  --magenta-deep: #8f1c47;
-  --magenta-mid: #a3164f;
+  --bg-paper: #fff4f8;
+  --ink: #43192e;
+  --ink-soft: #876577;
+  --pink-pale: #fce4ec;
+  --pink-tag-bg: #fadce7;
+  --pink-tag-text: #b52360;
+  --magenta-deep: #8f1648;
+  --magenta-mid: #b52360;
   --pink-mid: #e585a8;
   --pink-light: #f3a8c2;
   --wave-1: #f6c9d8;
   --wave-2: #e585a8;
   --wave-3: #8f1c47;
-  --card-border: #f0c6d4;
+  --card-border: #eacad7;
 }
 
 * { box-sizing: border-box; }
