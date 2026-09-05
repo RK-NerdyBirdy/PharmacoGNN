@@ -1,49 +1,27 @@
-// Shared workspace chrome: sidebar nav, topbar, sidebar callout, footer.
-// Rendered the same way on every workspace page from one config object,
-// so nothing about the shell is hardcoded per-page.
-const WORKSPACE_SHELL = {
-  user: { initials: 'YS' },
-
-  nav: [
-    { icon: '▦', label: 'Regimen overview', href: 'workspace.html' },
-    { icon: '◎', label: 'Demographic lens', href: 'demographic-lens.html' },
-    { icon: '⌘', label: 'Pathway inspector', href: 'pathway-inspector.html' },
-    { icon: '⇄', label: 'Substitution engine', href: 'substitution-engine.html' },
-    { icon: '☰', label: 'Review & export', href: null },
-  ],
-
-  sidebarCallout: {
-    title: 'A clearer picture.',
-    text: 'Every pair. Every pathway. One considered decision.',
+const UI = {
+  escape:s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),
+  text:(id,s)=>{const n=document.getElementById(id);if(n)n.textContent=s;},
+  pair:()=>{const s=PharmaStore.getState();return s.selectedPair.map(id=>s.medicines.find(m=>m.id===id)).filter(Boolean);},
+  go:page=>{location.href=page+'.html';},
+  announce:s=>{document.getElementById('statusMessage').textContent=s;},
+  matrix(regimen,interactive=false){
+    const {medicines}=regimen;const e=UI.escape;
+    if(medicines.length<2)return '<caption>Add at least two medicines to compare interactions.</caption>';
+    return '<caption class="sr-only">Synthetic pairwise interaction scores. Unknown does not mean safe.</caption><thead><tr><th scope="col">Drug</th>'+medicines.map((m,i)=>'<th scope="col" title="'+e(m.name)+'">'+String.fromCharCode(65+i)+'</th>').join('')+'</tr></thead><tbody>'+medicines.map((a,i)=>'<tr><th scope="row" title="'+e(a.name)+'">'+String.fromCharCode(65+i)+'</th>'+medicines.map(b=>{if(a.id===b.id)return '<td class="cell-diagonal">—</td>';const score=PharmaStore.score(a.id,b.id,regimen),kind=PharmaDemo.classifyScore(score),label=e(a.name+' + '+b.name+': '+(score??'unknown')+'; '+kind);return '<td class="cell-'+kind+'">'+(interactive?'<button type="button" data-a="'+e(a.id)+'" data-b="'+e(b.id)+'" aria-label="'+label+'">'+(score??'?')+'</button>':'<span aria-label="'+label+'">'+(score??'?')+'</span>')+'</td>';}).join('')+'</tr>').join('')+'</tbody>';
   },
-
-  footer: {
-    left: 'Research prototype • Synthetic scores • Clinician review required',
-    right: 'Model demo—v0.1',
-  },
+  key:meds=>meds.map((m,i)=>String.fromCharCode(65+i)+' '+m.name).join(' · '),
+  modal(title,html){const d=document.getElementById('demoDialog');d.innerHTML='<form method="dialog"><button class="dialog-close" aria-label="Close dialog">×</button></form><h2 id="dialogTitle">'+UI.escape(title)+'</h2>'+html;d.showModal();return d;}
 };
-
-function renderWorkspaceShell(activeLabel) {
-  const nav = document.getElementById('sidebarNav');
-  WORKSPACE_SHELL.nav.forEach((item) => {
-    const isActive = item.label === activeLabel;
-    const el = document.createElement(item.href ? 'a' : 'button');
-    el.className = 'sidebar-nav-item' + (isActive ? ' active' : '');
-    if (item.href) {
-      el.href = item.href;
-    } else {
-      el.type = 'button';
-      el.disabled = true;
-    }
-    el.innerHTML = `<span class="sidebar-nav-icon">${item.icon}</span><span>${item.label}</span>`;
-    nav.appendChild(el);
-  });
-
-  document.getElementById('userAvatar').textContent = WORKSPACE_SHELL.user.initials;
-
-  document.querySelector('.sidebar-callout-title').textContent = WORKSPACE_SHELL.sidebarCallout.title;
-  document.querySelector('.sidebar-callout-text').textContent = WORKSPACE_SHELL.sidebarCallout.text;
-
-  document.getElementById('footerLeft').textContent = WORKSPACE_SHELL.footer.left;
-  document.getElementById('footerRight').textContent = WORKSPACE_SHELL.footer.right;
+function renderWorkspaceShell(active){
+  const routes=[['▦','Regimen overview','workspace'],['◎','Demographic lens','demographic-lens'],['⌘','Pathway inspector','pathway-inspector'],['⇄','Substitution engine','substitution-engine'],['☰','Review & export','regimen-simulation']];
+  document.getElementById('sidebarNav').innerHTML=routes.map(([icon,label,page])=>'<a class="sidebar-nav-item '+(active===label?'active':'')+'" '+(active===label?'aria-current="page"':'')+' href="'+page+'.html"><span aria-hidden="true" class="sidebar-nav-icon">'+icon+'</span>'+label+'</a>').join('');
+  const user=PharmaStore.getUser();UI.text('userAvatar',user.initials);document.getElementById('userAvatar').title=user.name+' · '+user.role;
+  document.querySelector('.workspace-topbar').insertAdjacentHTML('afterbegin','<a class="case-breadcrumb" href="workspace.html">Workspace / Demo case 004</a><span class="pill pill-muted">Synthetic data</span>');
+  const brand=document.querySelector('.workspace-sidebar .brand');brand.outerHTML='<a class="brand" href="../index.html" aria-label="PharmaGNN home">'+brand.innerHTML+'</a>';
+  document.querySelector('.sidebar-callout-title').textContent='A clearer picture.';document.querySelector('.sidebar-callout-text').textContent='Every pair. Every pathway. One considered decision.';
+  UI.text('footerLeft','Research prototype • Synthetic scores • Clinician review required');UI.text('footerRight','Model demo-v0.1');
+  document.querySelector('.sidebar-footer-link').insertAdjacentHTML('beforebegin','<button class="reset-demo" id="resetDemo" type="button">Reset demo</button>');
+  document.body.insertAdjacentHTML('beforeend','<p class="status-message" id="statusMessage" role="status" aria-live="polite"></p><dialog id="demoDialog" aria-labelledby="dialogTitle"></dialog>');
+  document.getElementById('resetDemo').onclick=()=>{UI.modal('Reset the demo?','<p>This restores the sample medicines and patient context.</p><button class="btn btn-primary" id="confirmReset">Reset demo</button>');document.getElementById('confirmReset').onclick=()=>{PharmaStore.reset();UI.go('workspace');};};
+  const quick=document.createElement('a');quick.className='quick-add btn btn-secondary';quick.href='workspace.html#add-medicine';quick.textContent='+ Add a medicine';if(active!=='Regimen overview')document.querySelector('.workspace-topbar .topbar-right').prepend(quick);
 }

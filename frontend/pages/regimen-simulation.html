@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>PharmaGNN Workspace — Substitution engine</title>
+<title>PharmaGNN Workspace — Regimen simulation</title>
 <link rel="stylesheet" href="../css/styles.css" />
 <link rel="stylesheet" href="../css/workspace.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -19,12 +19,16 @@
       <span class="brand-toggle"><span class="brand-toggle-dot"></span></span>
       <span class="brand-name">PharmaGNN</span>
     </div>
+
     <div class="sidebar-label">Clinical workspace</div>
+
     <nav class="sidebar-nav" id="sidebarNav"></nav>
+
     <div class="sidebar-callout">
-      <p class="sidebar-callout-title"></p>
-      <p class="sidebar-callout-text"></p>
+      <p class="sidebar-callout-title">A clearer picture.</p>
+      <p class="sidebar-callout-text">Every pair. Every pathway. One considered decision.</p>
     </div>
+
     <a class="sidebar-footer-link" href="../index.html">&larr; Research demo</a>
   </aside>
 
@@ -36,27 +40,7 @@
       </div>
     </header>
 
-    <main class="workspace-content">
-      <h1 class="workspace-heading" id="pageHeading"></h1>
-      <p class="workspace-subhead" id="pageSubhead"></p>
-
-      <section class="ws-card replace-card" id="replaceCard"></section>
-
-      <div class="comparison-heading-row">
-        <h2>Candidate comparison</h2>
-        <span class="comparison-note" id="rankedNote"></span>
-      </div>
-
-      <section class="candidate-grid">
-        <article class="ws-card candidate-list-card">
-          <ul class="candidate-list" id="candidateList"></ul>
-        </article>
-
-        <article class="ws-card candidate-detail-card" id="candidateDetailCard"></article>
-      </section>
-
-      <p class="candidate-banner" id="candidateBanner"></p>
-    </main>
+    <main class="workspace-content"><h1 class="workspace-heading">Preview the change before making it.</h1><p class="workspace-subhead" id="simulationSubtitle"></p><div id="simulationContent"></div></main>
 
     <footer class="workspace-footer">
       <span id="footerLeft"></span>
@@ -68,6 +52,6 @@
 
 <script src="../js/demo-store.js"></script>
 <script src="../js/workspace-shared.js"></script>
-<script src="../js/substitution-engine.js"></script>
+<script src="../js/regimen-simulation.js"></script>
 </body>
 </html>

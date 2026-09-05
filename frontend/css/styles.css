@@ -30,7 +30,7 @@ body {
 }
 
 h1, h2 {
-  font-family: 'Fraunces', Georgia, serif;
+  font-family: Georgia, serif;
   font-weight: 500;
   margin: 0;
 }
@@ -198,7 +198,7 @@ h1, h2 {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: 'Fraunces', serif;
+  font-family: Georgia, serif;
   font-size: 30px;
   font-weight: 500;
   color: #fff;
@@ -396,3 +396,8 @@ h1, h2 {
   .capsule-half { width: 120px; height: 80px; font-size: 20px; }
   .features-footer { flex-direction: column; gap: 18px; text-align: center; }
 }
+
+:root{--bg-paper:#fff5f8;--ink:#43192e;--ink-soft:#876577;--pink-pale:#fadce7;--pink-tag-bg:#fadce7;--pink-tag-text:#b52360;--magenta-deep:#b52360;--magenta-mid:#b52360;--pink-mid:#dd5b91;--pink-light:#ef8fb3;--card-border:#eacad7}
+a.brand{color:var(--ink);text-decoration:none}.brand-toggle{width:30px;height:16px;position:relative;padding:0;overflow:hidden}.brand-toggle-dot{position:absolute;right:0;top:0;width:15px;height:16px;border-radius:0;background:#ef8fb3}
+.btn{min-height:44px;display:inline-flex;align-items:center;justify-content:center;line-height:1.3}.btn:disabled{opacity:.45;cursor:not-allowed}button,input{font:inherit}button:focus-visible,a:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:3px solid #b52360;outline-offset:4px}.sr-only,.skip-link:not(:focus){position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.skip-link:focus{position:fixed;top:0;left:0;z-index:999;background:white;padding:16px}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}

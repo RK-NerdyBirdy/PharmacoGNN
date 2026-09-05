@@ -3,7 +3,8 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "dev": "live-server --port=8420 --no-browser"
+    "dev": "live-server --port=8420 --no-browser",
+    "test": "node --test tests/*.test.cjs"
   },
   "devDependencies": {
     "live-server": "^1.2.2"
