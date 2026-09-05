@@ -224,4 +224,8 @@
     };
     renderReviewCard();
   });
+
+  document.getElementById('inspectPathwayBtn').addEventListener('click', () => {
+    window.location.href = 'pathway-inspector.html';
+  });
 })();

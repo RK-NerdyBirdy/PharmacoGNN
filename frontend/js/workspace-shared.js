@@ -2,8 +2,6 @@
 // Rendered the same way on every workspace page from one config object,
 // so nothing about the shell is hardcoded per-page.
 const WORKSPACE_SHELL = {
-  breadcrumb: 'Workspace / Demo case 004',
-  dataMode: 'Synthetic data',
   user: { initials: 'YS' },
 
   nav: [
@@ -41,8 +39,6 @@ function renderWorkspaceShell(activeLabel) {
     nav.appendChild(el);
   });
 
-  document.getElementById('breadcrumb').textContent = WORKSPACE_SHELL.breadcrumb;
-  document.getElementById('dataModePill').textContent = WORKSPACE_SHELL.dataMode;
   document.getElementById('userAvatar').textContent = WORKSPACE_SHELL.user.initials;
 
   document.querySelector('.sidebar-callout-title').textContent = WORKSPACE_SHELL.sidebarCallout.title;

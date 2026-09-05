@@ -1,0 +1,11 @@
+{
+  "name": "pharmacognn-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "live-server --port=8420 --no-browser"
+  },
+  "devDependencies": {
+    "live-server": "^1.2.2"
+  }
+}

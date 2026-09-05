@@ -126,7 +126,7 @@
 .workspace-topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   padding: 20px 32px;
   border-bottom: 1px solid rgba(143, 28, 71, 0.08);
 }
@@ -893,6 +893,221 @@
   margin-top: 18px;
 }
 
+/* ---------- Substitution engine ---------- */
+
+.replace-card {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+
+.replace-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.replace-drug-name {
+  font-family: 'Fraunces', serif;
+  font-size: 19px;
+  color: var(--ink);
+}
+
+.replace-intent-box {
+  min-width: 220px;
+}
+
+.replace-tags {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.comparison-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.comparison-heading-row h2 {
+  font-family: 'Fraunces', serif;
+  font-size: 19px;
+  color: var(--ink);
+  margin: 0;
+}
+
+.comparison-note {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.candidate-grid {
+  display: grid;
+  grid-template-columns: 1.7fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+.candidate-list-card {
+  padding: 8px 20px;
+}
+
+.candidate-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.candidate-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 4px;
+  border-bottom: 1px solid var(--card-border);
+  cursor: pointer;
+}
+
+.candidate-row:last-child {
+  border-bottom: none;
+}
+
+.candidate-rank {
+  background: var(--pink-tag-bg);
+  color: var(--pink-tag-text);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.candidate-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.candidate-name {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.candidate-subtitle {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.candidate-badge {
+  display: inline-block;
+  width: fit-content;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  margin-top: 2px;
+}
+
+.badge-good {
+  background: #cfe8d8;
+  color: #2f6b46;
+}
+
+.badge-warn {
+  background: var(--pink-tag-bg);
+  color: var(--pink-tag-text);
+}
+
+.candidate-score-block {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 70px;
+}
+
+.candidate-score {
+  font-family: 'Fraunces', serif;
+  font-size: 22px;
+  color: var(--ink);
+}
+
+.candidate-score-max {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.candidate-delta-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 60px;
+}
+
+.candidate-delta {
+  font-size: 15px;
+  font-weight: 700;
+  color: #2f6b46;
+}
+
+.candidate-delta-label {
+  font-size: 10.5px;
+  color: var(--ink-soft);
+}
+
+.candidate-row.selected {
+  background: rgba(143, 28, 71, 0.04);
+  border-radius: 12px;
+}
+
+.candidate-detail-name {
+  font-family: 'Inter', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+.detail-rows {
+  margin: 14px 0 18px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--card-border);
+  font-size: 12.5px;
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-term {
+  color: var(--ink-soft);
+}
+
+.detail-value {
+  color: var(--ink);
+  font-weight: 600;
+  text-align: right;
+}
+
+.candidate-banner {
+  background: var(--pink-pale);
+  border-radius: 14px;
+  padding: 16px 20px;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin-top: 22px;
+}
+
 /* ---------- Footer ---------- */
 
 .workspace-footer {
@@ -922,6 +1137,9 @@
     grid-template-columns: 1fr;
   }
   .pathway-grid {
+    grid-template-columns: 1fr;
+  }
+  .candidate-grid {
     grid-template-columns: 1fr;
   }
 }
