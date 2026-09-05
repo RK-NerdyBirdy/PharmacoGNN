@@ -1,0 +1,5 @@
+# Force binary handling (no CRLF/LF normalization) for model artifacts.
+# Git's binary auto-detection can miss some .pt/.pth files, which on Windows
+# leads to silent corruption via CRLF conversion on checkout.
+*.pt binary
+*.pth binary
