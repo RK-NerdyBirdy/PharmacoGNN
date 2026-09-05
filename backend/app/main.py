@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.v1.auth import router as auth_router
+from app.api.v1.explain import router as explain_router
 from app.api.v1.predict import router as predict_router
 from app.core.config import settings
 from app.services import gnn_engine
@@ -29,6 +30,7 @@ app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
 
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(predict_router, prefix="/api/v1")
+app.include_router(explain_router, prefix="/api/v1")
 
 
 @app.get("/health")

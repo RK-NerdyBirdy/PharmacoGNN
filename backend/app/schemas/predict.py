@@ -75,3 +75,35 @@ class RegimenPredictionResponse(BaseModel):
     degraded_mode: bool = Field(
         description="True if predictions were computed without running the HGTConv encoder (see gnn_engine)."
     )
+
+
+class SubstitutionRequest(BaseModel):
+    drug_a_cid: str = Field(description="The fixed drug in the high-risk pair")
+    drug_b_cid: str = Field(description="The drug to search safer alternatives for")
+    patient_id: UUID | None = None
+    patient_sex: BiologicalSex | None = None
+
+
+class SubstitutionCandidate(BaseModel):
+    cid: str
+    name: str
+    similarity_to_original: float = Field(description="Cosine similarity to drug_b in Z_DRUG_CACHE, -1..1")
+    new_top_risk_score: float
+    new_top_adverse_effect: str
+    risk_reduction: float = Field(description="original_top_risk_score - new_top_risk_score; higher is better")
+
+
+class SubstitutionResponse(BaseModel):
+    drug_a_cid: str
+    drug_a_name: str
+    drug_b_cid: str
+    drug_b_name: str
+    original_top_risk_score: float
+    original_top_adverse_effect: str
+    substitution_recommended: bool = Field(
+        description="True if original_top_risk_score exceeded HIGH_RISK_THRESHOLD (75.0)"
+    )
+    alternatives: list[SubstitutionCandidate] = Field(
+        description="Top candidates by steepest risk reduction; empty if not high-risk or none reduce risk"
+    )
+    degraded_mode: bool
