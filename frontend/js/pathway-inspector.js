@@ -5,7 +5,7 @@
 
     pair: { label: 'Amitriptyline × citalopram', score: 82, scoreMax: 100 },
     findAlternativesLabel: 'Find alternatives',
-    pathwayFootnote: 'Select a node or edge to inspect its source and limitations.',
+    pathwayFootnote: 'Select a node to inspect its source and limitations.',
     evidenceButtonLabel: 'View evidence details',
     nodePillLabel: 'Evidence inspection',
 
@@ -65,6 +65,12 @@
     activePathwayKey: 'cardiac',
   };
 
+
+  if(!PharmaStore.hasFixture()){
+    renderWorkspaceShell('Pathway inspector');
+    document.querySelector('.workspace-content').innerHTML='<h1 class="workspace-heading">Evidence is still needed.</h1><article class="ws-card empty-state"><h2>No pathway fixture for this pair</h2><p>'+UI.escape(UI.pair().map(m=>m.name).join(' + ')||'Add two medicines first')+'</p><p>The demo only includes pathways for amitriptyline and citalopram. Unknown does not mean safe.</p><a class="btn btn-primary" href="workspace.html">Return to regimen</a></article>';
+    return;
+  }
   function activePathway() {
     return inspectorData.pathways[inspectorData.activePathwayKey];
   }
@@ -167,7 +173,9 @@
       g.appendChild(rect);
       g.appendChild(label);
       g.appendChild(type);
+      g.setAttribute('role','button'); g.setAttribute('aria-label',node.label+' — '+node.type);
       g.addEventListener('click', () => selectNode(node.id));
+      g.addEventListener('keydown', e => {if(e.key==='Enter'||e.key===' '){e.preventDefault();selectNode(node.id);}});
       svg.appendChild(g);
     });
   }
@@ -189,7 +197,7 @@
 
     document.getElementById('whyTitle').textContent = 'Why this node appears';
     document.getElementById('whyText').textContent =
-      `The demo highlights a shared ${pathway.label.toLowerCase()} pathway associated with the selected drug pair.`;
+      node.label + ' is shown in this illustrative ' + pathway.label.toLowerCase() + ' subgraph. Its connection requires source validation.';
 
     document.getElementById('sourceStatusLabel').textContent = 'SOURCE STATUS';
     document.getElementById('sourceStatusText').textContent =
@@ -202,6 +210,8 @@
     document.getElementById('viewEvidenceBtn').textContent = inspectorData.evidenceButtonLabel;
   }
 
+  document.getElementById('findAlternativesBtn').onclick=()=>UI.go('substitution-engine');
+  document.getElementById('viewEvidenceBtn').onclick=()=>UI.modal('Evidence details','<p>This is an illustrative graph, not a validated causal explanation.</p><dl><dt>Selected node</dt><dd>'+UI.escape(nodeById(activePathway().selectedNodeId).label)+'</dd><dt>Source status</dt><dd>Curated source records are not connected yet.</dd><dt>Model</dt><dd>demo-v0.1 · synthetic fixtures</dd></dl>');
   renderWorkspaceShell('Pathway inspector');
   renderHeading();
   renderToolbar();
