@@ -13,10 +13,29 @@ UI.text('medicinesNote');UI.text('medicinesFootnote','Add dose and indication fo
 UI.text('matrixNote','Select a pair to inspect its model evidence.');UI.text('matrixFootnote','Pairwise estimates do not capture all multi-drug effects.');
 UI.text('exploreTitle','Explore a change');UI.text('exploreText','');UI.text('findAlternativesBtn','Find alternatives →');
 document.getElementById('matrixLegend').innerHTML=['priority','review','lower','unknown'].map(k=>'<span class="legend-chip legend-'+k+'">'+k[0].toUpperCase()+k.slice(1)+'</span>').join('');
+// Shrinks the interaction matrix's cell size/font as the regimen grows, via
+// CSS custom properties consumed in css/workspace.css, so a bigger NxN grid
+// fits more before the matrix needs to scroll sideways.
+const MATRIX_SCALE_STEPS = [
+  { max: 4, cell: 78, font: 16 },
+  { max: 6, cell: 60, font: 14 },
+  { max: 8, cell: 48, font: 13 },
+  { max: 10, cell: 40, font: 12 },
+  { max: Infinity, cell: 32, font: 11 },
+];
+function applyMatrixScale(medicineCount) {
+  const step = MATRIX_SCALE_STEPS.find((s) => medicineCount <= s.max);
+  const card = document.getElementById('matrixCard');
+  if (!card) return;
+  card.style.setProperty('--matrix-cell-size', step.cell + 'px');
+  card.style.setProperty('--matrix-font-size', step.font + 'px');
+}
+
 function render(){const s=PharmaStore.getState(),e=UI.escape;
   document.getElementById('contextBar').innerHTML='<span class="context-title">Patient Information</span><span class="pill pill-muted">Age '+s.context.age+'</span><span class="pill pill-muted">'+e(s.context.sex)+'</span><a class="btn btn-edit" href="demographic-lens.html" aria-label="Edit patient information">✎</a>';
   document.getElementById('medicineList').innerHTML=s.medicines.map((m,i)=>'<li class="medicine-item"><span class="medicine-badge">'+String.fromCharCode(65+i)+'</span><span class="medicine-info"><span class="medicine-name">'+e(m.name)+'</span><br><span class="medicine-detail">'+e(m.dose||'Dose not entered')+'</span></span>'+(PUBCHEM_CID_BY_MEDICINE_ID[m.id]?'<button class="medicine-view3d" type="button" data-view3d="'+e(m.id)+'" data-name="'+e(m.name)+'">View 3D</button>':'')+'<button class="medicine-remove" data-remove="'+e(m.id)+'" aria-label="Remove '+e(m.name)+'">×</button></li>').join('')||'<li class="empty-state">Your regimen is empty. Add medicines to begin.</li>';
   document.getElementById('interactionMatrix').innerHTML=UI.matrix(s,true);UI.text('matrixLegendLabels',UI.key(s.medicines));
+  applyMatrixScale(s.medicines.length);
   const pair=UI.pair(),value=pair.length===2?PharmaStore.score(...s.selectedPair):null,kind=PharmaDemo.classifyScore(value);
   UI.text('reviewTitle',pair.length===2?pair.map(m=>m.name).join(' + '):'Select a pair');UI.text('reviewNote','');
   UI.text('priorityPill',pair.length<2?'ADD MEDICINES':kind==='priority'?'HIGH PRIORITY':kind.toUpperCase());document.getElementById('priorityPill').dataset.kind=kind;
