@@ -27,11 +27,10 @@ audit_action_type = postgresql.ENUM(
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    user_role.create(bind, checkfirst=True)
-    biological_sex.create(bind, checkfirst=True)
-    audit_action_type.create(bind, checkfirst=True)
-
+    # Not pre-created via .create(checkfirst=True): postgresql.ENUM has
+    # create_type=True by default, so op.create_table() below already emits
+    # CREATE TYPE the first time each enum object appears as a column type.
+    # Doing both raises DuplicateObjectError the type already exists.
     op.create_table(
         "users",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),

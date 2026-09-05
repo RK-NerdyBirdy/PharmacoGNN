@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 # checkpoint's state_dict keys.
 Metadata = tuple[list[str], list[tuple[str, str, str]]]
 
-_GRAPH_EDGE_FILENAMES = ("hetero_graph.pt", "graph_edges.pt")
+_GRAPH_EDGE_FILENAMES = ("graph_edge_index.pt", "hetero_graph.pt", "graph_edges.pt")
 
 
 class NodeEmbedding(nn.Module):
@@ -37,10 +38,18 @@ class HeteroEncoder(nn.Module):
 
     NOTE: the state_dict proves the conv/norm module shapes exactly (verified
     via strict=True load against the real checkpoint), but LayerNorm/ReLU are
-    parameter-free, so the *inter-layer activation* below (ReLU after each
-    LayerNorm) could not be verified the same way -- it's the standard choice
-    for stacked HGTConv encoders, not a confirmed fact about this checkpoint.
-    Revisit if the original training script surfaces and says otherwise.
+    parameter-free, so the *inter-layer activation* below cannot be verified
+    the same way. It was actively checked against weights/z_protein.pt (an
+    independently-computed reference protein embedding shipped alongside
+    graph_edge_index.pt) by running this exact encoder over the real graph:
+    ReLU-after-LayerNorm gives mean_abs_diff=0.71 against a reference whose
+    own mean abs value is only 0.80 -- i.e. NOT a match, likely wrong, not
+    just numerical noise. The "no ReLU, LayerNorm only" alternative has not
+    yet been checked (a full 3-layer forward pass over ~1.5M edges takes
+    ~25 min on CPU here). Z_DRUG_CACHE computed via this encoder should be
+    treated as directionally-graph-aware but NOT confirmed numerically
+    correct until this is resolved -- see the training script if it surfaces,
+    or re-run the no-ReLU variant, before trusting absolute risk scores.
     """
 
     def __init__(self, hidden_dim: int, num_layers: int, heads: int, metadata: Metadata) -> None:
@@ -114,6 +123,13 @@ CID_TO_NAME: dict[str, str] = {}
 # Index-aligned with decoder.rel_embed rows: IDX_TO_RELATION_META[i] describes relation i.
 IDX_TO_RELATION_META: list[dict[str, Any]] = []
 
+PROTEIN2IDX: dict[str, int] = {}
+IDX2PROTEIN: dict[int, str] = {}
+PROTEIN_TO_NAME: dict[str, str] = {}
+# Populated only when real graph edges were found; used by find_bridging_proteins
+# for a graph-grounded xai_pathway. None in degraded mode.
+EDGE_INDEX_DICT: dict[tuple[str, str, str], torch.Tensor] | None = None
+
 
 def _read_json(weights_dir: Path, filename: str) -> Any:
     return json.loads((weights_dir / filename).read_text(encoding="utf-8"))
@@ -145,13 +161,14 @@ def _build_model(weights_dir: Path, cfg: dict[str, Any], num_se_relations: int) 
     return model
 
 
-def _try_load_edge_index_dict(weights_dir: Path) -> dict[tuple[str, str, str], torch.Tensor] | None:
+def _try_load_edge_index_dict(
+    weights_dir: Path,
+) -> tuple[dict[tuple[str, str, str], torch.Tensor], str] | tuple[None, None]:
     """Looks for graph edges produced by the training pipeline.
 
-    Not part of the artifacts shipped in backend/weights/ as of this writing --
-    only ID vocabularies and the trained state_dict are present. Returns None
-    (rather than fabricating topology) if nothing is found; callers must treat
-    that as a real, visible degraded mode, not a silent fallback.
+    Returns (edge_index_dict, filename_used), or (None, None) if nothing is
+    found -- rather than fabricating topology; callers must treat that as a
+    real, visible degraded mode, not a silent fallback.
     """
     for filename in _GRAPH_EDGE_FILENAMES:
         path = weights_dir / filename
@@ -160,19 +177,85 @@ def _try_load_edge_index_dict(weights_dir: Path) -> dict[tuple[str, str, str], t
         obj = torch.load(path, map_location=settings.GNN_DEVICE, weights_only=False)
         edge_index_dict = getattr(obj, "edge_index_dict", obj)  # HeteroData, or an already-plain dict
         if isinstance(edge_index_dict, dict):
-            return edge_index_dict
-    return None
+            return edge_index_dict, filename
+    return None, None
+
+
+def _fingerprint(path: Path) -> dict[str, str | int]:
+    """Content hash + size, NOT mtime: mtime is reset by every `git checkout`/
+    clone, so a cache computed on one machine and committed for teammates to
+    reuse (exactly how this is meant to be used) would otherwise always look
+    "stale" on a fresh checkout even when the file content is byte-identical.
+    """
+    hasher = hashlib.blake2b(digest_size=16)
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return {"hash": hasher.hexdigest(), "size": path.stat().st_size}
+
+
+def _source_fingerprint(weights_dir: Path, edge_filename: str | None) -> dict[str, Any]:
+    """Identifies exactly which inputs a cached Z_DRUG_CACHE was built from.
+
+    Compared against the currently-present files' content hashes before
+    trusting a cached tensor, so swapping in a retrained checkpoint or a new
+    graph can never silently serve stale embeddings.
+    """
+    weights_path = weights_dir / settings.MODEL_STATE_DICT_FILENAME
+    fingerprint: dict[str, Any] = {
+        "state_dict": _fingerprint(weights_path) if weights_path.exists() else None,
+        "edge_filename": edge_filename,
+    }
+    if edge_filename is not None:
+        fingerprint["edge_file"] = _fingerprint(weights_dir / edge_filename)
+    return fingerprint
+
+
+def _load_cached_drug_cache(
+    weights_dir: Path, expected_fingerprint: dict[str, Any]
+) -> torch.Tensor | None:
+    cache_path = weights_dir / settings.Z_DRUG_CACHE_FILENAME
+    if not cache_path.exists():
+        return None
+    try:
+        cached = torch.load(cache_path, map_location=settings.GNN_DEVICE, weights_only=False)
+    except Exception:
+        logger.warning("PharmacoGNN: failed to load %s, recomputing.", cache_path, exc_info=True)
+        return None
+
+    if not isinstance(cached, dict) or cached.get("fingerprint") != expected_fingerprint:
+        logger.info(
+            "PharmacoGNN: %s exists but its fingerprint doesn't match the current "
+            "state_dict/edge file -- source data changed, recomputing instead of "
+            "serving a stale cache.",
+            cache_path,
+        )
+        return None
+
+    logger.info("PharmacoGNN: loaded precomputed Z_DRUG_CACHE from %s (skipping the encoder forward pass).", cache_path)
+    return cached["z_drug"]
+
+
+def _save_drug_cache(weights_dir: Path, z_drug: torch.Tensor, fingerprint: dict[str, Any]) -> None:
+    cache_path = weights_dir / settings.Z_DRUG_CACHE_FILENAME
+    try:
+        torch.save({"z_drug": z_drug, "fingerprint": fingerprint}, cache_path)
+        logger.info("PharmacoGNN: saved Z_DRUG_CACHE to %s for fast startup next time.", cache_path)
+    except OSError:
+        logger.warning("PharmacoGNN: could not write %s (read-only mount?); will recompute next startup.", cache_path)
 
 
 @torch.no_grad()
-def _compute_drug_cache(model: PharmacoGNN, weights_dir: Path, cfg: dict[str, Any]) -> tuple[torch.Tensor, bool]:
+def _compute_drug_cache(
+    model: PharmacoGNN, weights_dir: Path, cfg: dict[str, Any]
+) -> tuple[torch.Tensor, bool, dict[tuple[str, str, str], torch.Tensor] | None]:
     device = settings.GNN_DEVICE
     x_dict = {
         "drug": model.node_embed.drug_emb(torch.arange(cfg["num_drugs"], device=device)),
         "protein": model.node_embed.protein_emb(torch.arange(cfg["num_proteins"], device=device)),
     }
 
-    edge_index_dict = _try_load_edge_index_dict(weights_dir)
+    edge_index_dict, edge_filename = _try_load_edge_index_dict(weights_dir)
     if edge_index_dict is None:
         logger.warning(
             "PharmacoGNN: no graph edge data found in %s (looked for %s). "
@@ -183,16 +266,32 @@ def _compute_drug_cache(model: PharmacoGNN, weights_dir: Path, cfg: dict[str, An
             weights_dir,
             _GRAPH_EDGE_FILENAMES,
         )
-        return x_dict["drug"].clone(), True
+        return x_dict["drug"].clone(), True, None
 
+    fingerprint = _source_fingerprint(weights_dir, edge_filename)
+    cached_z_drug = _load_cached_drug_cache(weights_dir, fingerprint)
+    if cached_z_drug is not None:
+        return cached_z_drug, False, edge_index_dict
+
+    logger.warning(
+        "PharmacoGNN: no valid %s found -- running the 3-layer HGTConv encoder over the full "
+        "graph now. This is a one-time cost (tens of minutes on CPU for a graph this size); "
+        "the result will be cached to disk so future startups skip it. Run "
+        "`python -m app.scripts.precompute_z_drug_cache` ahead of time to avoid paying this "
+        "cost on a live server's first request.",
+        settings.Z_DRUG_CACHE_FILENAME,
+    )
     z_dict = model.encoder(x_dict, edge_index_dict)
-    return z_dict["drug"], False
+    z_drug = z_dict["drug"]
+    _save_drug_cache(weights_dir, z_drug, fingerprint)
+    return z_drug, False, edge_index_dict
 
 
 def initialize() -> None:
     """Load artifacts + weights and populate Z_DRUG_CACHE. Call once at app startup."""
     global _MODEL, _MODEL_CONFIG, Z_DRUG_CACHE, Z_DRUG_CACHE_DEGRADED
     global DRUG2IDX, IDX2DRUG, CID_TO_NAME, IDX_TO_RELATION_META
+    global PROTEIN2IDX, IDX2PROTEIN, PROTEIN_TO_NAME, EDGE_INDEX_DICT
 
     weights_dir = settings.WEIGHTS_DIR
     cfg = _read_json(weights_dir, "model_config.json")
@@ -213,9 +312,14 @@ def initialize() -> None:
     CID_TO_NAME = _read_json(weights_dir, "cid_to_name.json")
     IDX_TO_RELATION_META = idx_to_meta  # type: ignore[assignment]
 
+    PROTEIN2IDX = _read_json(weights_dir, "protein2idx.json")
+    IDX2PROTEIN = {idx: pid for pid, idx in PROTEIN2IDX.items()}
+    protein_to_name_path = weights_dir / "protein_to_name.json"
+    PROTEIN_TO_NAME = _read_json(weights_dir, "protein_to_name.json") if protein_to_name_path.exists() else {}
+
     _MODEL_CONFIG = cfg
     _MODEL = _build_model(weights_dir, cfg, num_se_relations=len(idx_to_meta))
-    Z_DRUG_CACHE, Z_DRUG_CACHE_DEGRADED = _compute_drug_cache(_MODEL, weights_dir, cfg)
+    Z_DRUG_CACHE, Z_DRUG_CACHE_DEGRADED, EDGE_INDEX_DICT = _compute_drug_cache(_MODEL, weights_dir, cfg)
 
     logger.info(
         "PharmacoGNN ready: %d drugs, %d relations, degraded_mode=%s",
@@ -236,6 +340,10 @@ def _require_ready() -> None:
 
 def drug_name(cid: str) -> str:
     return CID_TO_NAME.get(cid, cid)
+
+
+def protein_name(pid: str) -> str:
+    return PROTEIN_TO_NAME.get(pid, pid)
 
 
 def _scale_for_female_bias(score: float, female_weighted: bool, apply: bool) -> float:
@@ -332,3 +440,88 @@ def predict_regimen_matrix(
 
     regimen_toxicity_index = float(top_scores.mean()) if p else 0.0
     return matrix, pair_flags, regimen_toxicity_index
+
+
+def find_bridging_proteins(cid_a: str, cid_b: str, max_shared: int = 3) -> dict[str, Any]:
+    """Real topological grounding for explain.py's xai_pathway.
+
+    Looks for either (a) a protein directly targeted by both drugs, or
+    (b) a single protein-protein-interaction hop connecting a target of
+    drug_a to a target of drug_b -- using EDGE_INDEX_DICT (the actual
+    training graph), never embedding similarity or LLM guesswork. Returns
+    {"nodes": [], "edges": [], "data_available": False} if edges weren't
+    loaded (degraded mode) or no such connection exists in the graph; that
+    is a true negative, not a fabricated one.
+
+    Node ids are namespaced ("drug:<cid>", "protein:<id>") so Cytoscape.js/
+    React Flow consumers never collide a drug and protein sharing a raw id.
+    """
+    empty: dict[str, Any] = {"nodes": [], "edges": [], "data_available": False}
+    if EDGE_INDEX_DICT is None:
+        return empty
+    if cid_a not in DRUG2IDX or cid_b not in DRUG2IDX:
+        return empty
+
+    targets_edge = EDGE_INDEX_DICT.get(("drug", "targets", "protein"))
+    if targets_edge is None:
+        return empty
+
+    idx_a, idx_b = DRUG2IDX[cid_a], DRUG2IDX[cid_b]
+    drug_idx, protein_idx = targets_edge[0], targets_edge[1]
+
+    proteins_a = set(protein_idx[drug_idx == idx_a].tolist())
+    proteins_b = set(protein_idx[drug_idx == idx_b].tolist())
+
+    drug_a_node = {"id": f"drug:{cid_a}", "label": drug_name(cid_a), "type": "drug"}
+    drug_b_node = {"id": f"drug:{cid_b}", "label": drug_name(cid_b), "type": "drug"}
+
+    shared = proteins_a & proteins_b
+    if shared:
+        nodes = [drug_a_node, drug_b_node]
+        edges = []
+        for p_idx in list(shared)[:max_shared]:
+            pid = IDX2PROTEIN.get(p_idx, str(p_idx))
+            node_id = f"protein:{pid}"
+            nodes.append({"id": node_id, "label": protein_name(pid), "type": "protein"})
+            edges.append({"source": drug_a_node["id"], "target": node_id, "label": "targets"})
+            edges.append({"source": drug_b_node["id"], "target": node_id, "label": "targets"})
+        return {"nodes": nodes, "edges": edges, "data_available": True}
+
+    ppi_edge = EDGE_INDEX_DICT.get(("protein", "interacts", "protein"))
+    if ppi_edge is not None and proteins_a and proteins_b:
+        src, dst = ppi_edge[0], ppi_edge[1]
+        a_tensor = torch.tensor(list(proteins_a))
+        b_tensor = torch.tensor(list(proteins_b))
+
+        # A single PPI hop in either direction: (a-target -> b-target) or (b-target -> a-target).
+        mask_ab = torch.isin(src, a_tensor) & torch.isin(dst, b_tensor)
+        mask_ba = torch.isin(src, b_tensor) & torch.isin(dst, a_tensor)
+
+        hit = None
+        if mask_ab.any():
+            k = int(mask_ab.nonzero(as_tuple=True)[0][0])
+            hit = (int(src[k]), int(dst[k]))
+        elif mask_ba.any():
+            k = int(mask_ba.nonzero(as_tuple=True)[0][0])
+            hit = (int(dst[k]), int(src[k]))  # normalized to (a-side, b-side)
+
+        if hit is not None:
+            p1_idx, p2_idx = hit
+            pid1, pid2 = IDX2PROTEIN.get(p1_idx, str(p1_idx)), IDX2PROTEIN.get(p2_idx, str(p2_idx))
+            node1_id, node2_id = f"protein:{pid1}", f"protein:{pid2}"
+            return {
+                "nodes": [
+                    drug_a_node,
+                    {"id": node1_id, "label": protein_name(pid1), "type": "protein"},
+                    {"id": node2_id, "label": protein_name(pid2), "type": "protein"},
+                    drug_b_node,
+                ],
+                "edges": [
+                    {"source": drug_a_node["id"], "target": node1_id, "label": "targets"},
+                    {"source": node1_id, "target": node2_id, "label": "interacts"},
+                    {"source": node2_id, "target": drug_b_node["id"], "label": "targets"},
+                ],
+                "data_available": True,
+            }
+
+    return empty

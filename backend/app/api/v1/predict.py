@@ -8,9 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
-from app.models.audit import AuditActionType, AuditLog
-from app.models.patient import BiologicalSex, PatientCondition, PatientProfile
-from app.models.user import User, UserRole
+from app.core.config import settings
+from app.models.patient import PatientCondition
+from app.models.user import User
 from app.schemas.predict import (
     ADRProbability,
     DrugDiseaseFlag,
@@ -19,75 +19,49 @@ from app.schemas.predict import (
     PairwisePredictionResponse,
     RegimenPredictionRequest,
     RegimenPredictionResponse,
+    SubstitutionCandidate,
+    SubstitutionRequest,
+    SubstitutionResponse,
 )
-from app.services import gnn_engine
+from app.services import drug_disease, gnn_engine, substitution
+from app.services.patient_context import resolve_apply_female_bias
 
 router = APIRouter(prefix="/predict", tags=["predict"])
-
-
-async def _resolve_apply_female_bias(
-    patient_id: UUID | None,
-    patient_sex_override: BiologicalSex | None,
-    current_user: User,
-    db: AsyncSession,
-    request: Request,
-) -> bool:
-    """Decide whether to apply the female-ADR risk multiplier, and audit any real PHI access.
-
-    An explicit patient_sex override is a pure what-if simulation and never touches the DB.
-    A patient_id triggers an RBAC check (a PATIENT may only query their own profile; a
-    CLINICIAN may query any) and writes an AuditLog VIEW entry, since it resolves a real
-    patient's stored demographic data.
-    """
-    if patient_sex_override is not None:
-        return patient_sex_override == BiologicalSex.FEMALE
-
-    if patient_id is None:
-        return False
-
-    if current_user.role == UserRole.PATIENT:
-        own_profile_id = await db.scalar(
-            select(PatientProfile.id).where(PatientProfile.user_id == current_user.id)
-        )
-        if own_profile_id != patient_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Patients may only query their own profile"
-            )
-
-    profile = await db.get(PatientProfile, patient_id)
-    if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient profile not found")
-
-    db.add(
-        AuditLog(
-            accessor_user_id=current_user.id,
-            target_patient_id=profile.id,
-            action_type=AuditActionType.VIEW,
-            resource_type="PatientProfile",
-            ip_address=request.client.host if request.client else None,
-        )
-    )
-    await db.commit()
-
-    return profile.biological_sex == BiologicalSex.FEMALE
 
 
 async def _drug_disease_flags(
     patient_id: UUID | None, drug_cids: list[str], db: AsyncSession
 ) -> list[DrugDiseaseFlag]:
-    """Cross-reference the cart against the patient's diagnosed conditions.
+    """Cross-references the cart against the patient's active diagnosed conditions.
 
-    NOT IMPLEMENTED YET: doing this responsibly requires a curated drug-disease
-    contraindication reference (e.g. condition -> contraindicated drug/drug-class
-    mapping sourced from DrugBank/FDA labeling), which does not exist in
-    backend/weights/ -- those artifacts are the ADR *interaction* graph's
-    vocabularies, not a disease-contraindication table. Fabricating heuristic
-    rules here (e.g. name-matching "QT" conditions against a hardcoded drug
-    list) would mean inventing clinical guidance, which this endpoint will not
-    do. Once a real reference dataset is available, this should query
-    PatientCondition for `patient_id` and cross-reference it against that table.
+    Real, working query + cross-reference logic -- but see
+    app/services/drug_disease.py: it returns [] until a curated,
+    clinically-reviewed contraindication reference file is actually placed in
+    backend/weights/. This function will never fabricate that content itself.
     """
-    return []
+    if patient_id is None:
+        return []
+
+    condition_names = (
+        await db.scalars(
+            select(PatientCondition.condition_name).where(
+                PatientCondition.patient_id == patient_id, PatientCondition.is_active.is_(True)
+            )
+        )
+    ).all()
+    if not condition_names:
+        return []
+
+    raw_flags = drug_disease.screen(list(condition_names), drug_cids)
+    return [
+        DrugDiseaseFlag(
+            drug_cid=flag["drug_cid"],
+            drug_name=gnn_engine.drug_name(flag["drug_cid"]),
+            condition_name=flag["condition_name"],
+            note=flag["note"],
+        )
+        for flag in raw_flags
+    ]
 
 
 @router.post("/pairwise", response_model=PairwisePredictionResponse)
@@ -97,7 +71,7 @@ async def predict_pairwise(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> PairwisePredictionResponse:
-    apply_female_bias = await _resolve_apply_female_bias(
+    apply_female_bias = await resolve_apply_female_bias(
         payload.patient_id, payload.patient_sex, current_user, db, request
     )
 
@@ -129,7 +103,7 @@ async def predict_regimen(
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> RegimenPredictionResponse:
-    apply_female_bias = await _resolve_apply_female_bias(
+    apply_female_bias = await resolve_apply_female_bias(
         payload.patient_id, payload.patient_sex, current_user, db, request
     )
 
@@ -159,5 +133,39 @@ async def predict_regimen(
             for flag in pair_flags
         ],
         drug_disease_flags=drug_disease_flags,
+        degraded_mode=gnn_engine.Z_DRUG_CACHE_DEGRADED,
+    )
+
+
+@router.post("/substitute", response_model=SubstitutionResponse)
+async def substitute_drug(
+    payload: SubstitutionRequest,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> SubstitutionResponse:
+    apply_female_bias = await resolve_apply_female_bias(
+        payload.patient_id, payload.patient_sex, current_user, db, request
+    )
+
+    try:
+        original, alternatives = substitution.find_safe_substitutes(
+            payload.drug_a_cid, payload.drug_b_cid, apply_female_bias
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"Unknown drug CID: {exc.args[0]}"
+        ) from exc
+
+    top = original[0]
+    return SubstitutionResponse(
+        drug_a_cid=payload.drug_a_cid,
+        drug_a_name=gnn_engine.drug_name(payload.drug_a_cid),
+        drug_b_cid=payload.drug_b_cid,
+        drug_b_name=gnn_engine.drug_name(payload.drug_b_cid),
+        original_top_risk_score=top["risk_score"],
+        original_top_adverse_effect=top["name"],
+        substitution_recommended=top["risk_score"] > settings.HIGH_RISK_THRESHOLD,
+        alternatives=[SubstitutionCandidate(**candidate) for candidate in alternatives],
         degraded_mode=gnn_engine.Z_DRUG_CACHE_DEGRADED,
     )
