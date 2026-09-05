@@ -53,6 +53,16 @@ class Settings(BaseSettings):
     OPENROUTER_MODEL: str = "anthropic/claude-3.5-sonnet"
     OPENROUTER_TIMEOUT_SECONDS: float = 30.0
 
+    # --- CORS ---
+    # Comma-separated allow-list (not a JSON list) so a plain .env/docker-compose
+    # env var is easy to edit: CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+    # Defaults to the frontend's planned local dev port.
+    CORS_ORIGINS: str = "http://localhost:3000"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
 
 @lru_cache
 def get_settings() -> Settings:
