@@ -6,6 +6,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.explain import router as explain_router
@@ -14,6 +17,7 @@ from app.api.v1.predict import router as predict_router
 from app.api.v1.pubchem import router as pubchem_router
 from app.api.v1.vocab import router as vocab_router
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.services import gnn_engine
 
 logger = logging.getLogger(__name__)
@@ -31,6 +35,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
+
+# Per-IP, in-memory (see core/rate_limit.py for why that's a single-instance
+# limitation). Disabled entirely under pytest via RATE_LIMIT_ENABLED=false.
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # Explicit origin allow-list (never "*") since allow_credentials=True is needed
 # for the Authorization: Bearer header the frontend will send on every

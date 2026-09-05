@@ -1,42 +1,30 @@
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-pharmacognn}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      POSTGRES_DB: ${POSTGRES_DB:-pharmacognn}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pharmacognn} -d ${POSTGRES_DB:-pharmacognn}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-
   backend:
     build:
       context: ./backend
     environment:
-      # Built from the same POSTGRES_* vars that configure the db service
-      # above, pointed at its in-network hostname -- not backend/.env, which
-      # is for bare-metal runs against a host-local Postgres.
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-pharmacognn}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-pharmacognn}
+      # Neon (or any managed Postgres) connection string -- set the whole
+      # thing in .env. Not built from POSTGRES_* parts: a real DSN carries
+      # a hostname, and often URL-special characters in the password, that
+      # composing from separate vars would just re-break (see the git
+      # history here from when the previous local db service tried that).
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env to your Neon connection string}
+      # Neon requires TLS; a local Postgres container previously here didn't.
+      DATABASE_SSL_REQUIRE: ${DATABASE_SSL_REQUIRE:-true}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?set JWT_SECRET_KEY in .env}
       FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:?set FIELD_ENCRYPTION_KEY in .env}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-3.5-sonnet}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       # Bind-mounted (not just baked into the image) so a new/updated
-      # pharmacognn_deep_state_dict.pth or graph edge file can be dropped in
-      # without a rebuild -- useful while these artifacts are still evolving.
+      # pharmacognn_deep_state_dict.pth, graph edge file, or z_drug_cache.pt
+      # can be dropped in without a rebuild -- useful while these artifacts
+      # are still evolving.
       - ./backend/weights:/app/weights:ro
-    depends_on:
-      db:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -44,6 +32,3 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
-
-volumes:
-  pgdata:
