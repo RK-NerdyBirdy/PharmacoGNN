@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PharmaGNN Workspace — Pathway inspector</title>
+<link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="workspace.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body class="workspace-body">
+
+<div class="workspace-shell">
+
+  <aside class="workspace-sidebar">
+    <div class="brand">
+      <span class="brand-toggle"><span class="brand-toggle-dot"></span></span>
+      <span class="brand-name">PharmaGNN</span>
+    </div>
+    <div class="sidebar-label">Clinical workspace</div>
+    <nav class="sidebar-nav" id="sidebarNav"></nav>
+    <div class="sidebar-callout">
+      <p class="sidebar-callout-title"></p>
+      <p class="sidebar-callout-text"></p>
+    </div>
+    <a class="sidebar-footer-link" href="index.html">&larr; Research demo</a>
+  </aside>
+
+  <div class="workspace-main">
+
+    <header class="workspace-topbar">
+      <div class="breadcrumb" id="breadcrumb"></div>
+      <div class="topbar-right">
+        <span class="pill pill-muted" id="dataModePill"></span>
+        <div class="avatar" id="userAvatar"></div>
+      </div>
+    </header>
+
+    <main class="workspace-content">
+      <h1 class="workspace-heading" id="pageHeading"></h1>
+      <p class="workspace-subhead" id="pageSubhead"></p>
+
+      <div class="pathway-toolbar">
+        <span class="pill pill-muted" id="pairPill"></span>
+        <span class="priority-pill pathway-score-pill" id="scorePill"></span>
+        <button class="btn btn-primary pathway-alt-btn" id="findAlternativesBtn" type="button"></button>
+      </div>
+
+      <section class="pathway-grid">
+        <article class="ws-card pathway-card">
+          <header class="ws-card-header">
+            <h2>Biological pathway</h2>
+            <p class="ws-card-note" id="pathwaySubtitle"></p>
+          </header>
+
+          <div class="pathway-tabs" id="pathwayTabs"></div>
+
+          <div class="pathway-canvas">
+            <svg viewBox="0 0 620 300" id="pathwaySvg"></svg>
+          </div>
+
+          <div class="pathway-edge-legend" id="edgeLegend"></div>
+          <p class="ws-card-footnote" id="pathwayFootnote"></p>
+        </article>
+
+        <article class="ws-card node-detail-card" id="nodeDetailCard">
+          <h2 class="node-detail-title" id="nodeTitle"></h2>
+          <p class="ws-card-note" id="nodeSubtitle"></p>
+          <span class="pill pill-muted" id="nodePill"></span>
+
+          <h3 class="node-section-title" id="whyTitle"></h3>
+          <p class="node-section-text" id="whyText"></p>
+
+          <hr class="node-divider" />
+
+          <span class="node-label" id="sourceStatusLabel"></span>
+          <p class="node-section-text" id="sourceStatusText"></p>
+
+          <span class="node-label" id="attributionLabel"></span>
+          <p class="node-section-text" id="attributionText"></p>
+
+          <button class="btn btn-outline ws-btn-block" id="viewEvidenceBtn" type="button"></button>
+        </article>
+      </section>
+    </main>
+
+    <footer class="workspace-footer">
+      <span id="footerLeft"></span>
+      <span id="footerRight"></span>
+    </footer>
+
+  </div>
+</div>
+
+<script src="workspace-shared.js"></script>
+<script src="pathway-inspector.js"></script>
+</body>
+</html>
