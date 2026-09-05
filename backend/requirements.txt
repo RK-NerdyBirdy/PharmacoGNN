@@ -1,0 +1,20 @@
+# --- Phase 1: API core & database ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic[email]>=2.7
+pydantic-settings>=2.3
+sqlalchemy>=2.0.30
+asyncpg>=0.29
+alembic>=1.13
+pyjwt>=2.8
+passlib[bcrypt]>=1.7
+bcrypt>=4.1
+cryptography>=42.0
+python-dotenv>=1.0
+
+# --- Phase 2: GNN inference engine ---
+torch>=2.3
+torch-geometric>=2.5
+
+# --- Phase 3: LLM explainability (OpenRouter) ---
+httpx>=0.27
