@@ -4,10 +4,12 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
 from app.core.config import settings
+from app.models.patient import PatientCondition
 from app.models.user import User
 from app.schemas.predict import (
     ADRProbability,
@@ -21,7 +23,7 @@ from app.schemas.predict import (
     SubstitutionRequest,
     SubstitutionResponse,
 )
-from app.services import gnn_engine, substitution
+from app.services import drug_disease, gnn_engine, substitution
 from app.services.patient_context import resolve_apply_female_bias
 
 router = APIRouter(prefix="/predict", tags=["predict"])
@@ -30,19 +32,36 @@ router = APIRouter(prefix="/predict", tags=["predict"])
 async def _drug_disease_flags(
     patient_id: UUID | None, drug_cids: list[str], db: AsyncSession
 ) -> list[DrugDiseaseFlag]:
-    """Cross-reference the cart against the patient's diagnosed conditions.
+    """Cross-references the cart against the patient's active diagnosed conditions.
 
-    NOT IMPLEMENTED YET: doing this responsibly requires a curated drug-disease
-    contraindication reference (e.g. condition -> contraindicated drug/drug-class
-    mapping sourced from DrugBank/FDA labeling), which does not exist in
-    backend/weights/ -- those artifacts are the ADR *interaction* graph's
-    vocabularies, not a disease-contraindication table. Fabricating heuristic
-    rules here (e.g. name-matching "QT" conditions against a hardcoded drug
-    list) would mean inventing clinical guidance, which this endpoint will not
-    do. Once a real reference dataset is available, this should query
-    PatientCondition for `patient_id` and cross-reference it against that table.
+    Real, working query + cross-reference logic -- but see
+    app/services/drug_disease.py: it returns [] until a curated,
+    clinically-reviewed contraindication reference file is actually placed in
+    backend/weights/. This function will never fabricate that content itself.
     """
-    return []
+    if patient_id is None:
+        return []
+
+    condition_names = (
+        await db.scalars(
+            select(PatientCondition.condition_name).where(
+                PatientCondition.patient_id == patient_id, PatientCondition.is_active.is_(True)
+            )
+        )
+    ).all()
+    if not condition_names:
+        return []
+
+    raw_flags = drug_disease.screen(list(condition_names), drug_cids)
+    return [
+        DrugDiseaseFlag(
+            drug_cid=flag["drug_cid"],
+            drug_name=gnn_engine.drug_name(flag["drug_cid"]),
+            condition_name=flag["condition_name"],
+            note=flag["note"],
+        )
+        for flag in raw_flags
+    ]
 
 
 @router.post("/pairwise", response_model=PairwisePredictionResponse)

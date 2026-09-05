@@ -1,6 +1,6 @@
 # PharmacoGNN API Reference
 
-For frontend integration against the FastAPI backend in `backend/`. Covers every route that exists today (Phases 1-3). See the bottom of this doc for what's *not* built yet.
+For frontend integration against the FastAPI backend in `backend/`. Covers every route that exists today. See the bottom of this doc for what's *not* built yet.
 
 - **Base URL (local dev):** `http://localhost:8000`
 - **Base URL (Docker Compose):** `http://localhost:8000` (same — `BACKEND_PORT` in `.env`, default `8000`)
@@ -22,7 +22,7 @@ The API uses JWT bearer tokens. There is no session/cookie auth.
 
 **Important:** the login endpoint takes a **JSON body** (`{"email", "password"}`), *not* an OAuth2 form-urlencoded request, even though the OpenAPI schema references `OAuth2PasswordBearer` (that's only used internally to extract the token from the `Authorization` header on protected routes — it has no bearing on how you call `/login`).
 
-Tokens expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (default **60 minutes**). There is no refresh-token endpoint yet — the frontend must handle re-login on `401`. The decoded JWT payload shape is `{"sub": "<user_id>", "role": "CLINICIAN"|"PATIENT", "exp": <unix_timestamp>}`, in case you need to read the role client-side without an extra call (e.g. for role-gated UI).
+Tokens expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (default **60 minutes**). Call `POST /api/v1/auth/refresh` (bearer-authenticated, no body) proactively before that to get a new token without re-entering credentials — see below. Once a token has actually expired, `refresh` also returns `401` like everything else, and the user must log in again. The decoded JWT payload shape is `{"sub": "<user_id>", "role": "CLINICIAN"|"PATIENT", "exp": <unix_timestamp>}`, in case you need to read the role client-side without an extra call (e.g. for role-gated UI).
 
 ### Roles (RBAC)
 
@@ -92,7 +92,7 @@ No auth required. Poll this to know if the model finished loading and whether it
 
 ### `POST /api/v1/auth/register`
 
-Creates a login identity. **Does not** create a `PatientProfile` — there is currently no endpoint to do that (see "What's not built yet" below), so a `PATIENT`-role user can log in but has no profile data until the backend team adds patient-management endpoints.
+Creates a login identity only. **Does not** create a `PatientProfile` — a `PATIENT`-role user can log in immediately after registering, but has no profile data (and can't be passed as `patient_id` anywhere) until either they call `POST /api/v1/patients/me` themselves or a clinician calls `POST /api/v1/patients` for them (see section 3, "Patient management").
 
 Auth: none.
 
@@ -142,6 +142,129 @@ Auth: none.
 ```
 
 **Errors:** `401` "Incorrect email or password" — deliberately identical message whether the email doesn't exist, the password is wrong, or the account is deactivated (`is_active=false`), so the frontend can't distinguish these (don't try to build UI copy that assumes which one it was).
+
+---
+
+### `POST /api/v1/auth/refresh`
+
+Auth: required (any role). No request body.
+
+Re-issues a fresh access token from the current one. This is the simple "sliding session" pattern — it re-signs a new token as long as the one you sent is still valid; it is **not** a separate long-lived refresh-token type with its own rotation/revocation. Two calls within the same second can return byte-identical tokens (same claims, same `exp` to the second) — that's expected, not a bug.
+
+**Response `200`:** same shape as `/login`.
+
+**Errors:** `401` if the current token is already expired or invalid — at that point there is nothing to refresh from; log in again.
+
+---
+
+## Patient management (`/api/v1/patients`)
+
+None of this existed as of the previous version of this doc — the DB models existed but had no API surface. All endpoints below are auth-required.
+
+**Authorization model:**
+- A `PATIENT` may read/write only their **own** profile (via `/me`, or by passing their own `patient_id`), and may **read** (not write) their own conditions/regimens.
+- A `CLINICIAN` may read/write **any** patient's profile, conditions, and regimens. Conditions and regimens can only ever be created/modified by a `CLINICIAN` — a `PATIENT` cannot self-diagnose a condition or self-prescribe a regimen through this API (`403` on the attempt).
+- Every read and write in this section writes an `AuditLog` row, same as the `patient_id` mechanism on the predict/explain endpoints.
+
+### `POST /api/v1/patients/me`
+
+`PATIENT` role only. Creates the caller's own profile. `409` if they already have one.
+
+**Request body:**
+```json
+{
+  "legal_name": "Jane Doe",
+  "date_of_birth": "1990-05-14",
+  "medical_record_number": "MRN-12345",
+  "emergency_contact": "John Doe, 555-1234",
+  "biological_sex": "FEMALE",
+  "age": 36
+}
+```
+`legal_name`, `date_of_birth`, `medical_record_number`, `emergency_contact` are encrypted at rest (AES-256-GCM) — you send/receive them as plain strings, encryption is transparent to the API.
+
+**Response `201`:**
+```json
+{
+  "id": "aba92e50-49d2-4898-b304-fc25f94af825",
+  "user_id": "96900002-5166-49a3-a36c-0ceebb530255",
+  "legal_name": "Jane Doe",
+  "date_of_birth": "1990-05-14",
+  "medical_record_number": "MRN-12345",
+  "emergency_contact": "John Doe, 555-1234",
+  "biological_sex": "FEMALE",
+  "age": 36
+}
+```
+
+### `GET /api/v1/patients/me`
+
+`PATIENT` role only. `404` if they haven't created a profile yet. Response shape as above.
+
+### `POST /api/v1/patients`
+
+`CLINICIAN` role only — onboards a patient who doesn't have a profile yet.
+
+**Request body:** same as `POST /me`, plus a required `user_id` (must be an existing `PATIENT`-role user's id, from `/auth/register`'s response).
+
+**Errors:** `404` if `user_id` doesn't exist or isn't a `PATIENT`. `409` if that user already has a profile.
+
+### `GET /api/v1/patients/{patient_id}`
+
+Read one profile by its own id (not the user id). `CLINICIAN`: any patient. `PATIENT`: only their own (`403` otherwise). `404` if the id doesn't exist.
+
+### `PATCH /api/v1/patients/{patient_id}`
+
+Partial update — send only the fields you want to change. Same RBAC as the `GET` above. Accepts any of `legal_name`, `date_of_birth`, `medical_record_number`, `emergency_contact`, `biological_sex`, `age`.
+
+### `POST /api/v1/patients/{patient_id}/conditions`
+
+`CLINICIAN` only.
+
+**Request body:**
+```json
+{ "condition_name": "Hypertension", "icd10_code": "I10", "diagnosed_date": "2020-01-01" }
+```
+`icd10_code` and `diagnosed_date` are optional. New conditions default to `is_active: true`.
+
+**Response `201`:**
+```json
+{
+  "id": "ce84d5bb-ab61-4d22-9dc8-275b88579647",
+  "patient_id": "aba92e50-49d2-4898-b304-fc25f94af825",
+  "condition_name": "Hypertension",
+  "icd10_code": "I10",
+  "diagnosed_date": "2020-01-01",
+  "is_active": true
+}
+```
+
+### `GET /api/v1/patients/{patient_id}/conditions`
+
+Query params: `active_only` (bool, default `false`), `limit` (1-200, default 50), `offset` (default 0). `CLINICIAN`: any patient. `PATIENT`: only their own. Returns a plain JSON array (no envelope/`total` count).
+
+### `PATCH /api/v1/patients/{patient_id}/conditions/{condition_id}`
+
+`CLINICIAN` only. Typically used to set `{"is_active": false}` when a condition resolves. Also accepts `diagnosed_date`, `icd10_code`.
+
+### `POST /api/v1/patients/{patient_id}/regimens`
+
+`CLINICIAN` only. `prescriber_id` is set automatically to the calling clinician — don't send it.
+
+**Request body:**
+```json
+{ "pubchem_cid": 85, "drug_name": "Test Drug", "dosage": "10mg BID", "start_date": "2024-01-01" }
+```
+
+**Response `201`:** includes `id`, `patient_id`, `prescriber_id`, `end_date: null` (active).
+
+### `GET /api/v1/patients/{patient_id}/regimens`
+
+Query params: `active_only` (bool — filters to `end_date IS NULL`), `limit`, `offset` as above.
+
+### `PATCH /api/v1/patients/{patient_id}/regimens/{regimen_id}`
+
+`CLINICIAN` only. The way to discontinue a medication is `{"end_date": "2024-06-01"}`. Also accepts `dosage`.
 
 ---
 
@@ -234,7 +357,7 @@ Full pairwise interaction matrix for a cart of N≥2 drugs, vectorized. Auth: re
 - `interaction_matrix` is `drug_cids.length × drug_cids.length`, symmetric, diagonal is always `0.0` (self-pairs aren't scored). `interaction_matrix[i][j]` is the *top* (worst) ADR risk score for that pair specifically — use `pairwise_flags` to know which ADR that was.
 - `regimen_toxicity_index` is the mean of every pair's top risk score (a single 0-100 summary number for the whole cart).
 - `pairwise_flags` has one entry per unique pair (`N*(N-1)/2` entries), `is_high_risk` is `top_risk_score > 75.0`.
-- `drug_disease_flags` **is currently always `[]`** — this feature is intentionally unimplemented (see "What's not built yet"). Don't build UI that assumes it will ever be non-empty until told otherwise.
+- `drug_disease_flags` **is currently always `[]`**. The cross-referencing logic itself is real and wired up (it queries the patient's active conditions and checks them against a reference file), but no reference file ships with this repo — populating one requires real, clinically-reviewed contraindication data, which this backend will not fabricate. It'll start returning entries the moment `backend/weights/drug_disease_contraindications.json` exists in the format documented in `app/services/drug_disease.py`. Don't build UI that assumes it's non-empty until you've confirmed that file exists.
 
 **Errors:** `404` "Unknown drug CID: {cid}" for the first unrecognized CID. `422` if fewer than 2 CIDs given.
 
@@ -347,6 +470,43 @@ LLM-generated structured explanation for one specific adverse effect of a drug p
 
 ---
 
+## Vocabulary / search (`/api/v1/vocab`)
+
+For autocomplete/search UI. Auth required (any role), but not RBAC-scoped — this is non-PHI reference data, not a specific patient's information.
+
+### `GET /api/v1/vocab/drugs`
+
+Query params: `q` (string, case-insensitive substring match against drug name; omit or leave empty to list all 645), `limit` (1-100, default 20), `offset` (default 0).
+
+**Response `200`:**
+```json
+[
+  { "cid": "CID000000119", "name": "Gamma-Aminobutyric Acid" },
+  { "cid": "CID000000564", "name": "6-Aminohexanoic Acid" }
+]
+```
+
+### `GET /api/v1/vocab/drugs/{cid}`
+
+**Response `200`:** `{ "cid": "CID000000085", "name": "1-Propanaminium..." }`. **Errors:** `404` "Unknown drug CID" if not in `drug2idx.json`.
+
+### `GET /api/v1/vocab/adverse-effects`
+
+No query params — returns all 50 ADR relations in one response (small enough that pagination isn't needed).
+
+**Response `200`:**
+```json
+[
+  { "cui": "C0040034", "name": "thrombocytopenia", "female_weighted": true }
+]
+```
+
+### `GET /api/v1/vocab/adverse-effects/{cui}`
+
+**Response `200`:** single entry, same shape as above. **Errors:** `404` "Unknown adverse_effect_cui".
+
+---
+
 ## 4. Enums reference
 
 | Enum | Values |
@@ -380,8 +540,9 @@ curl -s -X POST http://localhost:8000/api/v1/predict/pairwise \
 
 ## 6. What's *not* built yet (don't design against these)
 
-- **No patient-management endpoints.** There's no way to create/read/update a `PatientProfile`, add `PatientCondition`s, or add `PatientRegimen` entries via the API yet — the DB models exist, the router (`patients.py`) doesn't. A `patient_id` you pass to the endpoints above must already exist in the database (created directly, not via the API).
-- **No token refresh endpoint.** Handle `401` by re-prompting login.
-- **`drug_disease_flags` is always `[]`.** Real drug-disease contraindication screening needs a curated reference dataset that doesn't exist yet.
-- **CID/name/relation lookups aren't exposed as endpoints.** There's no `GET /drugs` or `GET /adverse-effects` to power an autocomplete/search box — if you need one, ask the backend team to either expose the vocab files as an endpoint or ship them as static JSON to the frontend.
-- **No pagination, rate limiting, or bulk endpoints anywhere.**
+- **`drug_disease_flags` is always `[]`.** The query/cross-reference logic is real and wired up; it needs a curated, clinically-reviewed contraindication reference file that doesn't exist yet (see the note under `/predict/regimen` above). This backend will not fabricate that content.
+- **No rate limiting anywhere.** Not implemented; needs an infra decision (in-memory vs. Redis-backed, per-IP vs. per-user limits) before it's built.
+- **No bulk endpoints** (e.g. importing a whole medication history in one call) — ask if you need one; none exist today.
+- **Pagination is now on the list endpoints that can grow** (`GET .../conditions`, `GET .../regimens`, `GET /vocab/drugs`) via `limit`/`offset` query params, but there's no cursor-based pagination or a `total` count in the response — a plain JSON array is returned, so "are there more pages" is inferred from whether you got back exactly `limit` results.
+- **No endpoint to list/search patients** (e.g. "find patient by MRN or name") — `legal_name`/`medical_record_number` are encrypted at rest specifically so they can't be searched/filtered at the DB level; you need a `patient_id` (or the patient's own `user_id`) from somewhere else (e.g. your own patient-lookup flow) to use `GET /api/v1/patients/{patient_id}`.
+- **`PatientRegimen` has no link back to `/predict/regimen`.** Adding a regimen via the API doesn't automatically run a prediction — the frontend still needs to separately call `/predict/regimen` with the cart's CIDs (fetched via `GET .../regimens`) if it wants risk scores for a patient's actual saved medication list.

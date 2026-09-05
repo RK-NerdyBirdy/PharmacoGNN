@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -180,18 +181,25 @@ def _try_load_edge_index_dict(
     return None, None
 
 
-def _fingerprint(path: Path) -> dict[str, float | int]:
-    stat = path.stat()
-    return {"mtime": stat.st_mtime, "size": stat.st_size}
+def _fingerprint(path: Path) -> dict[str, str | int]:
+    """Content hash + size, NOT mtime: mtime is reset by every `git checkout`/
+    clone, so a cache computed on one machine and committed for teammates to
+    reuse (exactly how this is meant to be used) would otherwise always look
+    "stale" on a fresh checkout even when the file content is byte-identical.
+    """
+    hasher = hashlib.blake2b(digest_size=16)
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return {"hash": hasher.hexdigest(), "size": path.stat().st_size}
 
 
 def _source_fingerprint(weights_dir: Path, edge_filename: str | None) -> dict[str, Any]:
     """Identifies exactly which inputs a cached Z_DRUG_CACHE was built from.
 
-    Compared byte-for-byte (mtime+size, not a full hash -- cheap and enough to
-    catch "someone replaced the .pth/edge file") against the currently-present
-    files before trusting a cached tensor, so swapping in a retrained
-    checkpoint or new graph can never silently serve stale embeddings.
+    Compared against the currently-present files' content hashes before
+    trusting a cached tensor, so swapping in a retrained checkpoint or a new
+    graph can never silently serve stale embeddings.
     """
     weights_path = weights_dir / settings.MODEL_STATE_DICT_FILENAME
     fingerprint: dict[str, Any] = {
