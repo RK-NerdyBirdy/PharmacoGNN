@@ -41,10 +41,17 @@ alarm.
 dose titration guidance, timing separation, labs to check), not generic phrases like \
 "consult your doctor".
 - severity_classification must be exactly one of: Contraindicated, Major, Moderate, Minor.
-- You will be given a "pathway" object describing any known intermediate biological nodes. \
-If it has no nodes, you MUST set xai_pathway.data_available to false and leave \
-xai_pathway.nodes and xai_pathway.edges as empty lists -- never invent nodes or edges to \
-fill in a graph that was not provided.
+- You will be given a "pathway" object describing any known intermediate biological nodes, \
+looked up directly from the training graph (not a suggestion or a guess). If it has no \
+nodes, you MUST set xai_pathway.data_available to false and leave xai_pathway.nodes and \
+xai_pathway.edges as empty lists -- never invent nodes or edges to fill in a graph that was \
+not provided. If it DOES have nodes (e.g. a shared protein target, or two proteins linked by \
+an interaction), your clinical_mechanism should explicitly reference those specific \
+proteins by name as the basis for the mechanism, rather than describing a generic mechanism \
+class -- this is real topology from the model's graph, not background knowledge, so use it. \
+Your own xai_pathway JSON should faithfully echo the given nodes/edges either way; the \
+server does not use your copy of this field for anything safety-critical, but it must still \
+be internally consistent with what you were given.
 - Respond with ONLY a single JSON object matching the schema described in the user message. \
 No prose outside the JSON, no markdown code fences.
 """

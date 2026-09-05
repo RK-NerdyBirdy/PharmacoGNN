@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     WEIGHTS_DIR: Path = BACKEND_DIR / "weights"
     MODEL_STATE_DICT_FILENAME: str = "pharmacognn_deep_state_dict.pth"
     GNN_DEVICE: str = "cpu"
+    # Precomputed encoder output for all drugs, saved alongside a fingerprint of
+    # the state_dict + edge file it was built from. If present and the
+    # fingerprint still matches, startup skips the ~25min CPU forward pass
+    # entirely. Regenerate with `python -m app.scripts.precompute_z_drug_cache`.
+    Z_DRUG_CACHE_FILENAME: str = "z_drug_cache.pt"
 
     # Calibrated loss weight for curated female-biased ADRs (relation_meta.json's
     # `female_weighted` flag), and the ceiling a scaled score is clamped to.
