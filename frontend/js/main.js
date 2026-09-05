@@ -12,9 +12,9 @@
   }
   const schedule=()=>{if(!raf)raf=requestAnimationFrame(render);};addEventListener('scroll',schedule,{passive:true});addEventListener('resize',()=>{measure();schedule();});reduce.addEventListener('change',()=>{measure();schedule();});
   document.querySelectorAll('[data-reveal]').forEach(b=>b.onclick=()=>window.scrollTo({top:story.offsetTop+story.offsetHeight-stage.offsetHeight,behavior:reduce.matches?'instant':'smooth'}));
-  const chars=[];document.querySelectorAll('.headline-line').forEach(line=>{const text=line.textContent;line.textContent='';[...text].forEach(c=>{const span=document.createElement('span');span.className='headline-letter';span.textContent=c;line.append(span);chars.push(span);});});
+  const chars=[];document.querySelectorAll('.headline-line,.reveal-copy h2').forEach(line=>{const text=line.textContent;line.textContent='';[...text].forEach((c,i)=>{const span=document.createElement('span');span.className='headline-letter';span.textContent=c;if(line.classList.contains('reveal-copy')||line.closest('.reveal-copy')){if((i>=5&&i<16)||(i>=20&&i<27))span.classList.add('pink-word');}line.append(span);chars.push(span);});});
   const headline=document.getElementById('landingHeadline'),proximity=100;
-  headline.addEventListener('pointermove',event=>{if(reduce.matches||progress()>.15)return;chars.forEach(char=>{const r=char.getBoundingClientRect(),distance=Math.hypot(r.left+r.width/2-event.clientX,r.top+r.height/2-event.clientY),amount=Math.max(0,1-distance/proximity);char.style.fontVariationSettings="'wght' "+Math.round(400+amount*600)+", 'opsz' "+Math.round(9+amount*31);});});
+  stage.addEventListener('pointermove',event=>{if(reduce.matches)return;chars.forEach(char=>{const r=char.getBoundingClientRect(),distance=Math.hypot(r.left+r.width/2-event.clientX,r.top+r.height/2-event.clientY),amount=Math.max(0,1-distance/proximity);char.style.fontVariationSettings="'wght' "+Math.round(400+amount*600)+", 'opsz' "+Math.round(9+amount*31);});});
   headline.addEventListener('pointerleave',()=>chars.forEach(char=>{char.style.fontVariationSettings="'wght' 400, 'opsz' 9";}));
   measure();render();document.fonts.ready.then(()=>{measure();render();});
 })();
