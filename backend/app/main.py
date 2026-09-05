@@ -5,9 +5,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.predict import router as predict_router
+from app.api.v1.pubchem import router as pubchem_router
 from app.core.config import settings
 from app.services import gnn_engine
 
@@ -27,8 +29,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
 
+# The static frontend (frontend/, served separately e.g. via live-server) calls
+# this API from a different origin — needed for the browser-side fetch() calls
+# (e.g. MoleculeViewer) to succeed at all.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.FRONTEND_ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
+
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(predict_router, prefix="/api/v1")
+app.include_router(pubchem_router, prefix="/api/v1")
 
 
 @app.get("/health")

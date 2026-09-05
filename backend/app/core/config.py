@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # Phase 2's predict/regimen endpoint flags a pair as "high risk" above this.
     HIGH_RISK_THRESHOLD: float = 75.0
 
+    # Origins allowed to call this API from the browser (the static frontend in
+    # frontend/, served on its own origin during local dev via live-server).
+    FRONTEND_ORIGINS: list[str] = ["http://localhost:8420", "http://127.0.0.1:8420"]
+
 
 @lru_cache
 def get_settings() -> Settings:

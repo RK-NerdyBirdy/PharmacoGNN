@@ -58,9 +58,12 @@
         </article>
 
         <article class="ws-card" id="matrixCard">
-          <header class="ws-card-header">
-            <h2>Interaction matrix</h2>
-            <p class="ws-card-note" id="matrixNote"></p>
+          <header class="ws-card-header matrix-card-header">
+            <div>
+              <h2>Interaction matrix</h2>
+              <p class="ws-card-note" id="matrixNote"></p>
+            </div>
+            <button class="btn btn-outline matrix-3d-btn" id="viewDrugGraphBtn" type="button">View 3D map</button>
           </header>
           <div class="matrix-wrap">
             <table class="interaction-matrix" id="interactionMatrix"></table>
@@ -106,6 +109,9 @@
 </div>
 
 <script src="../js/workspace-shared.js"></script>
+<script src="../js/molecule-viewer.js"></script>
+<script src="../js/dot-field.js"></script>
+<script src="../js/drug-graph.js"></script>
 <script src="../js/workspace.js"></script>
 </body>
 </html>

@@ -326,13 +326,36 @@
 }
 
 .medicine-remove {
-  margin-left: auto;
+  margin-left: 8px;
   background: none;
   border: none;
   color: var(--ink-soft);
   font-size: 15px;
   cursor: pointer;
   line-height: 1;
+}
+
+.medicine-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.medicine-view3d {
+  margin-left: auto;
+  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid var(--card-border);
+  color: var(--pink-tag-text);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.medicine-view3d:hover {
+  background: var(--pink-tag-bg);
 }
 
 /* Matrix */
@@ -1106,6 +1129,124 @@
   font-size: 12.5px;
   color: var(--ink-soft);
   margin-top: 22px;
+}
+
+/* ---------- Molecule viewer modal ---------- */
+
+.molecule-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(43, 15, 26, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.molecule-modal {
+  background: #fff;
+  border-radius: 20px;
+  width: 100%;
+  max-width: 680px;
+  padding: 24px;
+  box-shadow: 0 24px 60px rgba(43, 15, 26, 0.25);
+}
+
+.molecule-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.molecule-modal-header h2 {
+  font-family: 'Fraunces', serif;
+  font-size: 19px;
+  color: var(--ink);
+  margin: 0;
+}
+
+.molecule-modal-close {
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.molecule-status {
+  font-size: 13px;
+  color: var(--ink-soft);
+  text-align: center;
+  margin: 0 0 10px;
+}
+
+.molecule-status-error {
+  color: var(--magenta-deep);
+}
+
+.molecule-viewer-container {
+  width: 100%;
+  height: 460px;
+  border-radius: 14px;
+  border: 1px solid var(--card-border);
+  background: #fff;
+  position: relative;
+}
+
+.molecule-modal-footnote {
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin: 12px 0 0;
+  text-align: center;
+}
+
+/* ---------- 3D drug relationship map ---------- */
+
+.matrix-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.matrix-3d-btn {
+  padding: 8px 16px;
+  font-size: 12.5px;
+  flex-shrink: 0;
+}
+
+.drug-graph-modal {
+  max-width: 960px;
+}
+
+.drug-graph-stage {
+  position: relative;
+  width: 100%;
+  height: 600px;
+  border-radius: 14px;
+  border: 1px solid var(--card-border);
+  overflow: hidden;
+}
+
+.drug-graph-container {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.dot-field-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.drug-graph-legend {
+  margin-top: 14px;
 }
 
 /* ---------- Footer ---------- */

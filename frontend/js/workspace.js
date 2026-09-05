@@ -15,10 +15,12 @@
     },
 
     medicines: [
-      { letter: 'A', name: 'Amitriptyline', detail: 'Dose not entered' },
-      { letter: 'B', name: 'Citalopram', detail: 'Dose not entered' },
-      { letter: 'C', name: 'Medicine C', detail: 'Demo placeholder' },
-      { letter: 'D', name: 'Medicine D', detail: 'Demo placeholder' },
+      // pubchemCid is the compound's PubChem CID, used to fetch its 3D structure.
+      // Medicine C/D are demo placeholders with no real compound, so no CID.
+      { letter: 'A', name: 'Amitriptyline', detail: 'Dose not entered', pubchemCid: 2160 },
+      { letter: 'B', name: 'Citalopram', detail: 'Dose not entered', pubchemCid: 2771 },
+      { letter: 'C', name: 'Medicine C', detail: 'Demo placeholder', pubchemCid: null },
+      { letter: 'D', name: 'Medicine D', detail: 'Demo placeholder', pubchemCid: null },
     ],
     medicinesNote: 'All values in this case are illustrative.',
     addMedicineLabel: '+ Add a medicine',
@@ -101,15 +103,25 @@
     caseData.medicines.forEach((med) => {
       const li = document.createElement('li');
       li.className = 'medicine-item';
+      const view3dBtn = med.pubchemCid
+        ? `<button class="medicine-view3d" type="button" data-cid="${med.pubchemCid}" data-name="${med.name}">View 3D</button>`
+        : '';
       li.innerHTML = `
         <span class="medicine-badge">${med.letter}</span>
-        <span>
+        <span class="medicine-info">
           <span class="medicine-name">${med.name}</span><br />
           <span class="medicine-detail">${med.detail}</span>
         </span>
+        ${view3dBtn}
         <button class="medicine-remove" type="button" aria-label="Remove ${med.name}">&times;</button>
       `;
       list.appendChild(li);
+    });
+
+    list.querySelectorAll('.medicine-view3d').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        window.openMoleculeViewer(Number(btn.dataset.cid), btn.dataset.name);
+      });
     });
   }
 
@@ -187,6 +199,16 @@
     document.getElementById('findAlternativesBtn').textContent = ex.ctaLabel;
   }
 
+  // Exposed so drug-graph.js can build the 3D relationship graph from the same
+  // data driving the 2D matrix, without reaching into this module's closure.
+  window.getRegimenGraphData = function () {
+    return {
+      medicines: caseData.medicines,
+      matrixScores: caseData.matrixScores,
+      thresholds: caseData.matrixThresholds,
+    };
+  };
+
   renderWorkspaceShell('Regimen overview');
   renderHeading();
   renderContextBar();
@@ -194,6 +216,11 @@
   renderMatrix();
   renderReviewCard();
   renderExploreCard();
+
+  const viewGraphBtn = document.getElementById('viewDrugGraphBtn');
+  if (viewGraphBtn) {
+    viewGraphBtn.addEventListener('click', () => window.openDrugGraph());
+  }
 
   // clicking a matrix cell loads that pair into the "Review first" card
   document.getElementById('interactionMatrix').addEventListener('click', (e) => {
