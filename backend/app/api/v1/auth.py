@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
 from app.schemas.auth import Token, UserLogin, UserRead, UserRegister
@@ -34,4 +34,20 @@ async def login(payload: UserLogin, db: Annotated[AsyncSession, Depends(get_db)]
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
 
     access_token = create_access_token(subject=str(user.id), role=user.role.value)
+    return Token(access_token=access_token)
+
+
+@router.post("/refresh", response_model=Token)
+async def refresh(current_user: Annotated[User, Depends(get_current_user)]) -> Token:
+    """Re-issues a fresh access token from a still-valid one.
+
+    This is the simple "sliding session" pattern -- it re-signs a new token
+    as long as the current one hasn't expired yet (get_current_user already
+    rejects expired/invalid tokens with 401), not a separate long-lived
+    refresh-token type with its own revocation/rotation. A client should call
+    this proactively before ACCESS_TOKEN_EXPIRE_MINUTES elapses; once a token
+    has actually expired there is nothing to refresh from and the user must
+    log in again.
+    """
+    access_token = create_access_token(subject=str(current_user.id), role=current_user.role.value)
     return Token(access_token=access_token)

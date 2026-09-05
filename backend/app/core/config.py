@@ -58,6 +58,14 @@ class Settings(BaseSettings):
     OPENROUTER_MODEL: str = "anthropic/claude-3.5-sonnet"
     OPENROUTER_TIMEOUT_SECONDS: float = 30.0
 
+    # --- Phase 4: drug-disease contraindication screening ---
+    # No file ships with this repo by default -- see app/services/drug_disease.py
+    # for the exact expected format. Populating it requires a real, clinically-
+    # reviewed reference (e.g. sourced from DrugBank/FDA labeling); this codebase
+    # will not fabricate contraindication rules, so screening returns [] until
+    # a real file is placed at WEIGHTS_DIR / this filename.
+    DRUG_DISEASE_REFERENCE_FILENAME: str = "drug_disease_contraindications.json"
+
     # --- CORS ---
     # Comma-separated allow-list (not a JSON list) so a plain .env/docker-compose
     # env var is easy to edit: CORS_ORIGINS=http://localhost:3000,http://localhost:5173

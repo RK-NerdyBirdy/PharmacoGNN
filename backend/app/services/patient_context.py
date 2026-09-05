@@ -6,6 +6,7 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.http import client_ip
 from app.models.audit import AuditActionType, AuditLog
 from app.models.patient import BiologicalSex, PatientProfile
 from app.models.user import User, UserRole
@@ -50,7 +51,7 @@ async def resolve_apply_female_bias(
             target_patient_id=profile.id,
             action_type=AuditActionType.VIEW,
             resource_type="PatientProfile",
-            ip_address=request.client.host if request.client else None,
+            ip_address=client_ip(request),
         )
     )
     await db.commit()
