@@ -119,7 +119,7 @@ function renderReviewCard(pair,value){
 
 function render(){const s=PharmaStore.getState(),e=UI.escape;
   document.getElementById('contextBar').innerHTML='<span class="context-title">Patient Information</span><span class="pill pill-muted">Age '+s.context.age+'</span><span class="pill pill-muted">'+e(s.context.sex)+'</span><a class="btn btn-edit" href="demographic-lens.html" aria-label="Edit patient information">✎</a>';
-  document.getElementById('medicineList').innerHTML=s.medicines.map((m,i)=>'<li class="medicine-item"><span class="medicine-badge">'+String.fromCharCode(65+i)+'</span><span class="medicine-info"><span class="medicine-name">'+e(m.name)+'</span><br><span class="medicine-detail">'+e(m.dose||'Dose not entered')+'</span></span>'+(getMedicineCid(m.id)?'<button class="medicine-view3d" type="button" data-view3d="'+e(m.id)+'" data-name="'+e(m.name)+'">View 3D</button>':'')+'<button class="medicine-remove" data-remove="'+e(m.id)+'" aria-label="Remove '+e(m.name)+'">×</button></li>').join('')||'<li class="empty-state">Your regimen is empty. Add medicines to begin.</li>';
+  document.getElementById('medicineList').innerHTML=s.medicines.map((m,i)=>'<li class="medicine-item"><span class="medicine-badge">'+String.fromCharCode(65+i)+'</span><span class="medicine-info"><span class="medicine-name" title="'+e(m.name)+'">'+e(m.name)+'</span><br><span class="medicine-detail">'+e(m.dose||'Dose not entered')+'</span></span>'+(getMedicineCid(m.id)?'<button class="medicine-view3d" type="button" data-view3d="'+e(m.id)+'" data-name="'+e(m.name)+'">View 3D</button>':'')+'<button class="medicine-remove" data-remove="'+e(m.id)+'" aria-label="Remove '+e(m.name)+'">×</button></li>').join('')||'<li class="empty-state">Your regimen is empty. Add medicines to begin.</li>';
   document.getElementById('interactionMatrix').innerHTML=UI.matrix(s,true);UI.text('matrixLegendLabels',UI.key(s.medicines));
   markUnverifiedCells();
   applyMatrixScale();
@@ -190,7 +190,7 @@ document.getElementById('medicineList').onclick=e=>{
   const view3d=e.target.closest('[data-view3d]');
   if(view3d)window.openMoleculeViewer(getMedicineCid(view3d.dataset.view3d),view3d.dataset.name);
 };
-document.getElementById('interactionMatrix').onclick=e=>{const b=e.target.closest('[data-a]');if(b){PharmaStore.selectPair(b.dataset.a,b.dataset.b);render();UI.announce('Selected '+UI.pair().map(m=>m.name).join(' and '));}};
+document.getElementById('interactionMatrix').onclick=e=>{const b=e.target.closest('[data-a]');if(b){PharmaStore.selectPair(b.dataset.a,b.dataset.b);const pair=UI.pair(),shownScore=Number(b.textContent.trim()),value=Number.isFinite(shownScore)&&b.textContent.trim()!==''?shownScore:PharmaStore.score(...PharmaStore.getState().selectedPair);renderReviewCard(pair,value);UI.announce('Selected '+pair.map(m=>m.name).join(' and '));}};
 document.getElementById('inspectPathwayBtn').onclick=()=>UI.go('pathway-inspector');document.getElementById('findAlternativesBtn').onclick=()=>UI.go('substitution-engine');
 const drugGraphBtn=document.getElementById('viewDrugGraphBtn');if(drugGraphBtn)drugGraphBtn.onclick=()=>window.openDrugGraph();
 
