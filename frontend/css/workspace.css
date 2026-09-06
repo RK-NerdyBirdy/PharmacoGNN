@@ -1531,7 +1531,9 @@ body,.workspace-body,.workspace-body *{font-family:'Fredoka',sans-serif!importan
 
 /* ---------- Auth (login/register) ---------- */
 .auth-page {
-  min-height: 100vh;
+  width: 100%;
+  min-height: 100dvh;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
