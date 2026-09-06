@@ -14,6 +14,7 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.explain import router as explain_router
 from app.api.v1.patients import router as patients_router
 from app.api.v1.predict import router as predict_router
+from app.api.v1.pubchem import router as pubchem_router
 from app.api.v1.vocab import router as vocab_router
 from app.core.config import settings
 from app.core.rate_limit import limiter
@@ -55,6 +56,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(patients_router, prefix="/api/v1")
 app.include_router(predict_router, prefix="/api/v1")
+app.include_router(pubchem_router, prefix="/api/v1")
 app.include_router(explain_router, prefix="/api/v1")
 app.include_router(vocab_router, prefix="/api/v1")
 
