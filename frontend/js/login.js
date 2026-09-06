@@ -45,12 +45,12 @@
   registerForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     registerError.textContent = '';
-    const email = document.getElementById('registerEmail').value.trim();
+    const email = document.getElementById('registerEmail').value;
     const password = document.getElementById('registerPassword').value;
-    const role = document.getElementById('registerRole').value;
     try {
-      await ApiClient.register(email, password, role);
-      await ApiClient.login(email, password);
+      const registration = LoginFlow.clinicianRegistration(email, password);
+      await ApiClient.register(registration.email, registration.password, registration.role);
+      await ApiClient.login(registration.email, registration.password);
       location.href = nextPage();
     } catch (err) {
       registerError.textContent = err.message || 'Could not create account.';
