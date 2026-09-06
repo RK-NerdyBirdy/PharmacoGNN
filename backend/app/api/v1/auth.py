@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
+from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
 from app.schemas.auth import Token, UserLogin, UserRead, UserRegister
@@ -15,7 +17,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-async def register(payload: UserRegister, db: Annotated[AsyncSession, Depends(get_db)]) -> User:
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def register(
+    request: Request, payload: UserRegister, db: Annotated[AsyncSession, Depends(get_db)]
+) -> User:
     existing = await db.scalar(select(User).where(User.email == payload.email))
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
@@ -28,7 +33,10 @@ async def register(payload: UserRegister, db: Annotated[AsyncSession, Depends(ge
 
 
 @router.post("/login", response_model=Token)
-async def login(payload: UserLogin, db: Annotated[AsyncSession, Depends(get_db)]) -> Token:
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def login(
+    request: Request, payload: UserLogin, db: Annotated[AsyncSession, Depends(get_db)]
+) -> Token:
     user = await db.scalar(select(User).where(User.email == payload.email))
     if user is None or not verify_password(payload.password, user.hashed_password) or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")

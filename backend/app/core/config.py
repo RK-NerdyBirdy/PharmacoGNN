@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,6 +16,14 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
 
     DATABASE_URL: str
+    # Neon (and most managed Postgres) require TLS and reject plain connections;
+    # a local/bare-metal Postgres usually neither needs nor is configured for
+    # it. Explicit flag rather than relying on asyncpg to parse a `sslmode=` /
+    # `ssl=` query param out of DATABASE_URL itself, since that behavior isn't
+    # something to leave implicit for how a real connection actually gets
+    # negotiated. True by default in docker-compose.yml (Neon-oriented);
+    # False by default here for local dev against a plain Postgres.
+    DATABASE_SSL_REQUIRE: bool = False
 
     JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
@@ -73,9 +82,25 @@ class Settings(BaseSettings):
     # frontend/package.json) alongside the originally planned one.
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8420,http://127.0.0.1:8420"
 
+    # --- Rate limiting ---
+    # In-memory (per-process) limiter -- fine for a single instance; a
+    # multi-replica deployment would need a shared backend (Redis) instead,
+    # since each process would otherwise track its own counters. Disabled
+    # entirely in tests (see tests/conftest.py) so test runs aren't flaky
+    # against shared per-IP buckets.
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_DEFAULT: str = "60/minute"
+    RATE_LIMIT_AUTH: str = "20/minute"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def asyncpg_connect_args(self) -> dict[str, Any]:
+        # asyncpg's own `ssl` connect kwarg accepts these libpq-style mode
+        # strings directly (not just True/False/SSLContext).
+        return {"ssl": "require"} if self.DATABASE_SSL_REQUIRE else {}
 
 
 @lru_cache

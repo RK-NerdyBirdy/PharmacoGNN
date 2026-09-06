@@ -7,6 +7,7 @@ For frontend integration against the FastAPI backend in `backend/`. Covers every
 - **All business endpoints are prefixed** `/api/v1`
 - **Content type:** `application/json` for every request body and response
 - **CORS:** allow-listed origins only (`CORS_ORIGINS` env var, comma-separated; defaults to `http://localhost:3000`), `allow_credentials: true`. If your frontend runs on a different port, add it there.
+- **Rate limiting:** per-IP, in-memory. Default **60 requests/minute** across the board; `/auth/register` and `/auth/login` are limited separately at **20/minute** (brute-force protection). Exceeding a limit returns `429 Too Many Requests` with a body like `{"error": "Rate limit exceeded: 20 per 1 minute"}` (note: `error`, not `detail`, unlike every other error response — and there's no `Retry-After` header, so don't rely on one). Build a retry/backoff path for `429` the same way you would for `401`.
 
 ---
 
