@@ -81,7 +81,7 @@
   async function fetchSdf(cid) {
     let resp;
     try {
-      resp = await fetch(`${API_BASE}/api/v1/pubchem/molecule/${toPubChemNumericCid(cid)}`);
+      resp = await fetch(`${API_BASE}/api/v1/pubchem/molecule/${encodeURIComponent(toPubChemNumericCid(cid))}`);
     } catch {
       // fetch() throws a generic "Failed to fetch" for any network-level failure
       // (backend not running, wrong port, CORS) — the specific cause isn't
