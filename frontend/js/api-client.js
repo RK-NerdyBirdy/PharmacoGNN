@@ -33,20 +33,29 @@
     } catch {}
   }
 
-  async function request(path, { method = 'GET', body, auth = true } = {}) {
-    const headers = { 'Content-Type': 'application/json' };
+  async function request(path, { method = 'GET', body, auth = true, form = false } = {}) {
+    const headers = {};
     if (auth) {
       const token = getToken();
       if (token) headers.Authorization = 'Bearer ' + token;
     }
 
+    let requestBody;
+    if (body !== undefined) {
+      if (form) {
+        // /auth/login expects OAuth2PasswordRequestForm: a standard
+        // application/x-www-form-urlencoded body, not JSON. fetch() sets
+        // the Content-Type header itself for a URLSearchParams body.
+        requestBody = new URLSearchParams(body);
+      } else {
+        headers['Content-Type'] = 'application/json';
+        requestBody = JSON.stringify(body);
+      }
+    }
+
     let res;
     try {
-      res = await fetch(API_BASE + path, {
-        method,
-        headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
+      res = await fetch(API_BASE + path, { method, headers, body: requestBody });
     } catch {
       throw new Error(`Could not reach the API at ${API_BASE}. Is the FastAPI backend running?`);
     }
@@ -80,7 +89,15 @@
       return request('/api/v1/auth/register', { method: 'POST', auth: false, body: { email, password, role } });
     },
     async login(email, password) {
-      const data = await request('/api/v1/auth/login', { method: 'POST', auth: false, body: { email, password } });
+      // /auth/login takes OAuth2PasswordRequestForm (form-encoded, field
+      // named "username" per the OAuth2 spec) rather than a JSON body --
+      // it's the one endpoint that doesn't match this client's usual shape.
+      const data = await request('/api/v1/auth/login', {
+        method: 'POST',
+        auth: false,
+        form: true,
+        body: { username: email, password },
+      });
       setToken(data.access_token);
       return data;
     },
