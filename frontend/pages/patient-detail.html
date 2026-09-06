@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>PharmaGNN Workspace — Care transfers</title>
+<title>PharmaGNN Workspace — Patient</title>
 <link rel="stylesheet" href="../css/styles.css" />
 <link rel="stylesheet" href="../css/workspace.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -35,14 +35,45 @@
     </header>
 
     <main class="workspace-content">
-      <h1 class="workspace-heading" id="pageHeading">Care transfers</h1>
+      <a class="case-breadcrumb" href="patients.html">&larr; Patients</a>
+      <h1 class="workspace-heading" id="pageHeading">Patient</h1>
       <p class="workspace-subhead" id="pageSubhead"></p>
+
+      <article class="ws-card" id="profileCard"></article>
 
       <article class="ws-card">
         <header class="ws-card-header">
-          <h2>Requests</h2>
-          <p class="ws-card-note" id="transfersNote"></p>
+          <h2>Active medications</h2>
+          <p class="ws-card-note" id="regimensNote"></p>
         </header>
+        <button class="add-medicine-btn" id="addRegimenBtn" type="button">+ Add medication</button>
+        <ul class="medicine-list" id="regimenList"></ul>
+      </article>
+
+      <article class="ws-card">
+        <header class="ws-card-header">
+          <h2>Conditions</h2>
+        </header>
+        <button class="add-medicine-btn" id="addConditionBtn" type="button">+ Add condition</button>
+        <ul class="medicine-list" id="conditionList"></ul>
+      </article>
+
+      <article class="ws-card">
+        <header class="ws-card-header">
+          <h2>Interaction reports</h2>
+          <p class="ws-card-note" id="reportsNote"></p>
+        </header>
+        <button class="btn btn-primary" id="generateReportBtn" type="button">Generate report</button>
+        <p class="ws-card-footnote" id="reportGenerateNote"></p>
+        <ul class="medicine-list" id="reportList"></ul>
+      </article>
+
+      <article class="ws-card">
+        <header class="ws-card-header">
+          <h2>Care team &amp; transfer</h2>
+        </header>
+        <ul class="medicine-list" id="accessList"></ul>
+        <button class="btn btn-secondary" id="initiateTransferBtn" type="button">Transfer to another clinician</button>
         <ul class="medicine-list" id="transferList"></ul>
       </article>
     </main>
@@ -60,6 +91,6 @@
 <script src="../js/demo-store.js"></script>
 <script src="../js/preferences.js"></script>
 <script src="../js/workspace-shared.js"></script>
-<script src="../js/transfers.js"></script>
+<script src="../js/patient-detail.js"></script>
 </body>
 </html>

@@ -1,1 +1,68 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Patients — PharmaGNN</title><link rel="stylesheet" href="../css/styles.css"><link rel="stylesheet" href="../css/workspace.css"></head><body class="workspace-body"><main class="auth-page" data-capability="patientList"><section class="auth-card ws-card"><h1 class="auth-title">My patients</h1><p class="auth-subtitle">Assigned patient records will appear here.</p><p id="capabilityStatus" class="auth-error"></p><a class="btn btn-primary ws-btn-block" href="workspace.html">Back to workspace</a></section></main><script src="../js/api-client.js"></script><script src="../js/capability-page.js"></script><script>CapabilityPage.mount()</script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PharmaGNN Workspace — Patients</title>
+<link rel="stylesheet" href="../css/styles.css" />
+<link rel="stylesheet" href="../css/workspace.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body class="workspace-body screen-patients">
+
+<div class="workspace-shell">
+
+  <aside class="workspace-sidebar">
+    <div class="brand">
+      <span class="brand-toggle"><span class="brand-toggle-dot"></span></span>
+      <span class="brand-name">PharmaGNN</span>
+    </div>
+    <div class="sidebar-label">Clinical workspace</div>
+    <nav class="sidebar-nav" id="sidebarNav"></nav>
+    <div class="sidebar-callout">
+      <p class="sidebar-callout-title"></p>
+      <p class="sidebar-callout-text"></p>
+    </div>
+    <a class="sidebar-footer-link" href="../index.html">&larr; Research demo</a>
+  </aside>
+
+  <div class="workspace-main">
+    <header class="workspace-topbar">
+      <div class="topbar-right">
+        <div class="avatar" id="userAvatar"></div>
+      </div>
+    </header>
+
+    <main class="workspace-content">
+      <h1 class="workspace-heading" id="pageHeading">My patients</h1>
+      <p class="workspace-subhead" id="pageSubhead">Patients assigned to you.</p>
+
+      <article class="ws-card">
+        <header class="ws-card-header">
+          <h2>Roster</h2>
+          <p class="ws-card-note" id="rosterNote"></p>
+        </header>
+        <button class="add-medicine-btn" id="newPatientBtn" type="button">+ New patient</button>
+        <ul class="medicine-list" id="patientList"></ul>
+        <p class="ws-card-footnote">Name/MRN search isn't possible server-side (encrypted at rest) — this list filters client-side over the fetched page only.</p>
+      </article>
+    </main>
+
+    <footer class="workspace-footer">
+      <span id="footerLeft"></span>
+      <span id="footerRight"></span>
+    </footer>
+  </div>
+</div>
+
+<script src="../js/api-client.js"></script>
+<script src="../js/logout-flow.js"></script>
+<script src="../js/auth-guard.js"></script>
+<script src="../js/demo-store.js"></script>
+<script src="../js/preferences.js"></script>
+<script src="../js/workspace-shared.js"></script>
+<script src="../js/patients.js"></script>
+</body>
+</html>

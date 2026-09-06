@@ -20,16 +20,28 @@ test('turns an API rate limit into actionable retry guidance', async () => {
   });
 });
 
-test('does not issue a request for a planned report route', async () => {
+test('reports is a live capability: getReport calls the real endpoint', async () => {
+  let requestedUrl = null;
+  const client = createApiClient({
+    fetch: async (url) => { requestedUrl = url; return new Response(JSON.stringify({ id: 'report-1', status: 'complete' }), { status: 200 }); },
+    storage: storage(),
+  });
+
+  const result = await client.getReport('report-1');
+  assert.equal(result.id, 'report-1');
+  assert.match(requestedUrl, /\/api\/v1\/reports\/report-1$/);
+});
+
+test('still rejects a not-yet-built capability (activation) without a request', async () => {
   let requests = 0;
   const client = createApiClient({
     fetch: async () => { requests += 1; throw new Error('network should not be used'); },
     storage: storage(),
   });
 
-  await assert.rejects(client.getReport('report-1'), error => {
+  await assert.rejects(client.activateAccount(), error => {
     assert.equal(error.code, 'CAPABILITY_UNAVAILABLE');
-    assert.equal(error.capability, 'reports');
+    assert.equal(error.capability, 'activation');
     return true;
   });
   assert.equal(requests, 0);
