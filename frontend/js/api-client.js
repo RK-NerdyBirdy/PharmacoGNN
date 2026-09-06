@@ -42,7 +42,10 @@
       throw new Error(`Could not reach the API at ${API_BASE}. Is the FastAPI backend running?`);
     }
 
-    if (res.status === 401) {
+    if (res.status === 401 && auth) {
+      // Only for requests that carried a token — a 401 on login/register
+      // itself (auth:false) means wrong credentials, not an expired
+      // session, and should surface the backend's real detail message below.
       clearToken();
       throw new Error('Session expired. Please log in again.');
     }
