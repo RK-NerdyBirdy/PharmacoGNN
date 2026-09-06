@@ -2,7 +2,7 @@
 
 Written for the frontend team building against the PharmacoGNN backend. Covers every user flow, the endpoints behind it, and the states the UI has to handle.
 
-> **Read this first — build status.** Auth, patient management and the interaction workbench are live; prescriptions, reports, QR and transfers are not built yet. Every section is tagged:
+> **Read this first — build status.** Auth, patient management, the interaction workbench, and prescription/regimen management are live; reports, QR and transfers are not built yet. Every section is tagged:
 >
 > - 🟢 **LIVE** — built, tested, callable today
 > - 🟡 **CHANGING** — exists today but its behavior/permissions are about to change; don't build against current behavior
@@ -167,11 +167,11 @@ UI: show "pending change to new@… — check that inbox" until confirmed, with 
 
 ---
 
-## 6. Flow — Clinician manages the regimen 🟡🔴
+## 6. Flow — Clinician manages the regimen 🟢
 
-Two ways in: structured prescription import, and manual per-drug edits.
+Two ways in: structured prescription import, and manual per-drug edits. Both are live and tested now.
 
-### Prescription import 🔴
+### Prescription import 🟢
 
 **`POST /api/v1/patients/{id}/prescriptions`** — submit a structured prescription; backend resolves drug names to internal IDs and creates regimen entries.
 
@@ -210,9 +210,9 @@ A sample prescription lives at `backend/samples/prescription_example.json` using
 
 | Endpoint | Status | Notes |
 |---|---|---|
-| `POST /api/v1/patients/{id}/regimens` | 🟡 | Add one drug (assignment-scoped now) |
-| `PATCH /api/v1/patients/{id}/regimens/{rid}` | 🟡 | **Discontinue** = set `end_date`. This is the normal "remove". |
-| `DELETE /api/v1/patients/{id}/regimens/{rid}` | 🔴 | **Hard delete** — data-entry correction only |
+| `POST /api/v1/patients/{id}/regimens` | 🟢 | Add one drug (assignment-scoped). Now validates against the 645-drug vocabulary — `422` if it can't resolve. |
+| `PATCH /api/v1/patients/{id}/regimens/{rid}` | 🟢 | **Discontinue** = set `end_date`. This is the normal "remove". |
+| `DELETE /api/v1/patients/{id}/regimens/{rid}` | 🟢 | **Hard delete** — data-entry correction only |
 
 **Make these two visually distinct.** "Discontinue" preserves medical history and is the right action ~always. "Delete" erases the record and should be a secondary, confirm-gated action labelled something like *"Delete — entered in error"*.
 
@@ -434,9 +434,9 @@ Powers a "who can see my record" view for patients and a care-team view for clin
 
 ## 14. What to build now vs. mock
 
-**Buildable against live endpoints today:** login/refresh/session, drug autocomplete, the entire interaction workbench (pairwise / regimen matrix / substitution / explanation), health-and-degraded-banner, **the clinician patient roster, patient detail (profile/conditions/regimens), patient self-edit, and the who-has-access view**.
+**Buildable against live endpoints today:** login/refresh/session, drug autocomplete, the entire interaction workbench (pairwise / regimen matrix / substitution / explanation), health-and-degraded-banner, **the clinician patient roster, patient detail (profile/conditions/regimens), patient self-edit, the who-has-access view, prescription import, and manual regimen add/discontinue/delete**.
 
-**Mock against this contract:** prescription import, reports, QR, transfers.
+**Mock against this contract:** reports, QR, transfers.
 
 > **Assignment is now enforced.** A clinician only sees patients they created (or were assigned). During development, create your test patients with the same clinician account you're logged in as, or you'll get `404`s that look like bugs.
 

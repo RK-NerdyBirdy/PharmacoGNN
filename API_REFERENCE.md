@@ -331,12 +331,17 @@ Query params: `active_only` (bool, default `false`), `limit` (1-200, default 50)
 
 `CLINICIAN` only. `prescriber_id` is set automatically to the calling clinician — don't send it.
 
+**⚠️ Breaking change:** `pubchem_cid` is now a **string** in the model's native format (`"CID" + 9 zero-padded digits`, e.g. `"CID000000085"`), not a bare integer. It's also now optional: if omitted, the drug is resolved from `drug_name` instead. Either way, the drug must be one of the model's 645 in-vocabulary drugs or the request is rejected — see the note below.
+
 **Request body:**
 ```json
-{ "pubchem_cid": 85, "drug_name": "Test Drug", "dosage": "10mg BID", "start_date": "2024-01-01" }
+{ "pubchem_cid": "CID000000085", "drug_name": "Test Drug", "dosage": "10mg BID", "start_date": "2024-01-01" }
 ```
+`drug_name` is always required by the schema, but if `pubchem_cid` is present it's authoritative — the stored `drug_name` on the response is the model's canonical name for that CID, not necessarily the text you sent. Omit `pubchem_cid` to resolve purely by name (exact, case-insensitive match against the vocabulary; no fuzzy matching, by design — see below).
 
-**Response `201`:** includes `id`, `patient_id`, `prescriber_id`, `end_date: null` (active).
+**Response `201`:** includes `id`, `patient_id`, `prescriber_id`, `end_date: null` (active), `external_prescriber_name` (null for entries added directly through this endpoint), `import_batch_id: null`.
+
+**Errors:** `422` if the drug can't be resolved — response `detail` names the reason (`not_in_vocabulary`, `cid_not_in_vocabulary`, `ambiguous_name`, or `missing_identifier`). This is deliberately strict: a drug the model doesn't know can't be scored, so it's rejected outright rather than silently stored and quietly dropped from every future interaction report. No fuzzy matching either — "Asprin" does not silently become "Aspirin"; a wrong guess here writes the wrong drug into a clinical record, so an honest 422 is preferred over a plausible-looking guess.
 
 ### `GET /api/v1/patients/{patient_id}/regimens`
 
@@ -344,7 +349,50 @@ Query params: `active_only` (bool — filters to `end_date IS NULL`), `limit`, `
 
 ### `PATCH /api/v1/patients/{patient_id}/regimens/{regimen_id}`
 
-`CLINICIAN` only. The way to discontinue a medication is `{"end_date": "2024-06-01"}`. Also accepts `dosage`.
+`CLINICIAN` only. The way to discontinue a medication is `{"end_date": "2024-06-01"}`. Also accepts `dosage`. This **preserves** the row — use it when a medication was genuinely taken and is now stopped.
+
+### `DELETE /api/v1/patients/{patient_id}/regimens/{regimen_id}`
+
+🟢 **New.** `CLINICIAN` only. Returns `204` on success, `404` if the regimen doesn't exist or belongs to a different patient.
+
+Hard delete — the row is actually erased, not just end-dated. This is for correcting a data-entry mistake (a drug that should never have been added), not for stopping a medication someone actually took — use `PATCH .../end_date` for that instead. Deliberately a different HTTP verb from discontinue so a client can't reach for it out of habit.
+
+### `POST /api/v1/patients/{patient_id}/prescriptions`
+
+🟢 **New.** `CLINICIAN` only. Creates multiple regimen rows from one structured prescription in a single call — this is the "dummy prescription" import flow.
+
+**Request body:**
+```json
+{
+  "prescriber_name": "Dr. Elena Ruiz, MD (External)",
+  "issued_date": "2026-08-15",
+  "allow_partial": false,
+  "items": [
+    { "drug_name": "Aspirin", "pubchem_cid": "CID000002244", "dosage": "81mg", "frequency": "once daily", "route": "oral", "start_date": "2026-08-15", "end_date": null, "instructions": "Take with food" },
+    { "drug_name": "Metformin", "dosage": "500mg", "frequency": "twice daily", "route": "oral", "start_date": "2026-08-15" }
+  ]
+}
+```
+| Field | Type | Notes |
+|---|---|---|
+| `prescriber_name` | string \| null | Free text — who actually wrote it, if not the calling clinician (e.g. an outside doctor's dummy prescription being transcribed) |
+| `issued_date` | date \| null | |
+| `allow_partial` | bool, default `false` | See below |
+| `items` | array, 1-50 | Each item has the same shape as `POST .../regimens`, plus `frequency`, `route`, `end_date`, `instructions` |
+
+Every item is resolved the same way as a single manual add. **With `allow_partial: false`** (the default), if *any* item fails to resolve, **nothing is committed** — this avoids leaving a regimen that looks complete but is silently missing a drug the model can't score. **With `allow_partial: true`**, resolvable items are committed and unresolved ones are reported back, uncommitted.
+
+**Response `201`:**
+```json
+{
+  "created": [ /* array of the regimen objects actually written, same shape as GET .../regimens */ ],
+  "unresolved": [
+    { "drug_name": "Amoxicillin", "pubchem_cid": null, "reason": "not_in_vocabulary" }
+  ],
+  "committed": true
+}
+```
+`committed` is `false` only when nothing was written at all (i.e. `allow_partial: false` and at least one item was unresolved). All rows created from one call share the same `import_batch_id`, and carry `external_prescriber_name` set from `prescriber_name` — use both to group/attribute an imported prescription later. A sample request body with a mix of real and deliberately-unresolvable drugs lives at `backend/samples/prescription_example.json`.
 
 ---
 
@@ -622,7 +670,6 @@ curl -s -X POST http://localhost:8000/api/v1/predict/pairwise \
 
 - **`drug_disease_flags` is always `[]`.** The query/cross-reference logic is real and wired up; it needs a curated, clinically-reviewed contraindication reference file that doesn't exist yet (see the note under `/predict/regimen` above). This backend will not fabricate that content.
 - **No rate limiting anywhere.** Not implemented; needs an infra decision (in-memory vs. Redis-backed, per-IP vs. per-user limits) before it's built.
-- **No bulk endpoints** (e.g. importing a whole medication history in one call) — ask if you need one; none exist today.
 - **Pagination is now on the list endpoints that can grow** (`GET .../conditions`, `GET .../regimens`, `GET /vocab/drugs`) via `limit`/`offset` query params, but there's no cursor-based pagination or a `total` count in the response — a plain JSON array is returned, so "are there more pages" is inferred from whether you got back exactly `limit` results.
 - **No patient *search*.** `GET /api/v1/patients` lists a clinician's assigned roster, but there's no server-side search by name or MRN — those columns are encrypted at rest with a non-deterministic cipher and can't be filtered on. Client-side filtering of a fetched page works; a global search needs a blind-index column added first.
 - **No email-change flow.** `PATCH /patients/me` deliberately excludes email, because changing it also changes where consent codes go and needs new-address verification first.
