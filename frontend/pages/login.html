@@ -30,8 +30,12 @@
     </form>
 
     <form id="registerForm" hidden>
-      <h1 class="auth-title">Create an account</h1>
-      <p class="auth-subtitle">Set up access to the regimen workspace.</p>
+      <h1 class="auth-title">Create a clinician account</h1>
+      <p class="auth-subtitle">
+        Patient accounts aren't self-service — a clinician creates a patient's
+        record and they activate it from an emailed invite. This form is for
+        clinicians only.
+      </p>
 
       <label class="field-label" for="registerEmail">Email</label>
       <input class="field-box" id="registerEmail" type="email" required autocomplete="email" />
@@ -39,18 +43,12 @@
       <label class="field-label" for="registerPassword">Password (min. 8 characters)</label>
       <input class="field-box" id="registerPassword" type="password" required minlength="8" autocomplete="new-password" />
 
-      <label class="field-label" for="registerRole">I am a</label>
-      <select class="field-box" id="registerRole">
-        <option value="CLINICIAN">Clinician</option>
-        <option value="PATIENT">Patient</option>
-      </select>
-
       <p class="auth-error" id="registerError" role="alert"></p>
       <button class="btn btn-primary ws-btn-block auth-submit" type="submit">Create account</button>
     </form>
 
     <p class="auth-switch">
-      <button type="button" id="showRegister">New here? Create an account</button>
+      <button type="button" id="showRegister">New here? Create a clinician account</button>
       <button type="button" id="showLogin" hidden>Already have an account? Sign in</button>
     </p>
   </div>
