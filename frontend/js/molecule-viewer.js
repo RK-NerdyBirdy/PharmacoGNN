@@ -68,10 +68,20 @@
     el.hidden = !text;
   }
 
+  // The backend's own vocabulary uses the model's zero-padded CID form
+  // ("CID000001072480") for lookups, but PubChem's REST API — and this
+  // proxy's own `cid: int` path param — wants a plain numeric CID (1072480).
+  // Static entries (PUBCHEM_CID_BY_MEDICINE_ID in workspace.js) are already
+  // plain ints and pass through unchanged; only the real-vocab-search path
+  // needs stripping.
+  function toPubChemNumericCid(cid) {
+    return String(cid).replace(/^CID/i, '').replace(/^0+(?=\d)/, '');
+  }
+
   async function fetchSdf(cid) {
     let resp;
     try {
-      resp = await fetch(`${API_BASE}/api/v1/pubchem/molecule/${cid}`);
+      resp = await fetch(`${API_BASE}/api/v1/pubchem/molecule/${toPubChemNumericCid(cid)}`);
     } catch {
       // fetch() throws a generic "Failed to fetch" for any network-level failure
       // (backend not running, wrong port, CORS) — the specific cause isn't

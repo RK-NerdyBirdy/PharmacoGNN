@@ -24,9 +24,19 @@
   const MEDICINE_NAME_MAX = 250;
   function valid(s){return s?.version===1 && Array.isArray(s.medicines) && s.medicines.length<=12 && s.medicines.every(m=>typeof m.id==='string' && typeof m.name==='string' && m.name.length<=MEDICINE_NAME_MAX && typeof m.dose==='string') && new Set(s.medicines.map(m=>m.id)).size===s.medicines.length && s.context && Number.isInteger(s.context.age) && s.context.age>=0 && s.context.age<=120 && ['female','male','unknown'].includes(s.context.sex) && typeof s.context.stratify==='boolean' && s.scores && Object.values(s.scores).every(v=>v===null || Number.isFinite(v)&&v>=0&&v<=100) && Array.isArray(s.selectedPair);}
   function createStore(storage, source=provider){
-    const storageKey='pharmagnn-demo-v1'; let state=source.getInitialCase(),restoreCandidate;
-    try {const loaded=JSON.parse(storage?.getItem(storageKey)||'null');if(valid(loaded)){restoreCandidate=loaded.simulation?.candidate?.id;state=loaded;state.simulation=null;}}catch{}
-    // Simulation is reconstructible and deliberately not restored from untrusted browser storage.
+    const storageKey='pharmagnn-demo-v1'; let state=source.getInitialCase(),restoreCandidate,pendingRealSimulation;
+    try {const loaded=JSON.parse(storage?.getItem(storageKey)||'null');if(valid(loaded)){restoreCandidate=loaded.simulation?.candidate?.id;pendingRealSimulation=loaded.simulation?.isReal?loaded.simulation:null;state=loaded;state.simulation=null;}}catch{}
+    // The old (fixture-lookup) simulation shape is reconstructible and
+    // deliberately not restored from untrusted browser storage — it's
+    // re-derived below via simulate(restoreCandidate) instead. A real
+    // (isReal) simulation carries no derived/computed scores to distrust —
+    // just the candidate the backend returned and which medicine it
+    // replaces — so it's restored directly; regimen-simulation.js re-fetches
+    // real scores for it regardless. Without this, navigating from
+    // substitution-engine.html to regimen-simulation.html (a full page load)
+    // would otherwise always show "No simulation selected" on this pending
+    // real substitution since it isn't the legacy id-lookup shape.
+    if(pendingRealSimulation)state.simulation=pendingRealSimulation;
     function repair(){if(state.selectedPair.length!==2 || new Set(state.selectedPair).size!==2 || !state.selectedPair.every(id=>state.medicines.some(m=>m.id===id)))state.selectedPair=state.medicines.length>=2?state.medicines.slice(0,2).map(m=>m.id):[];}
     repair();
     const save=()=>{repair();try{storage?.setItem(storageKey,JSON.stringify(state));}catch{}return clone(state);};
@@ -50,6 +60,21 @@
       getCandidates(){return state.selectedPair.length===2 && key(...state.selectedPair)===key('amitriptyline','citalopram')?source.getCandidates():[];},
       simulate(id){const candidate=this.getCandidates().find(c=>c.id===id);if(!candidate)throw Error('No supported candidate for this pair.');const original={medicines:clone(state.medicines),scores:clone(state.scores)};const proposed=clone(original);proposed.medicines=proposed.medicines.map(m=>m.id==='amitriptyline'?{id:candidate.id,name:candidate.name,dose:'Requires review'}:m);for(const med of proposed.medicines){if(med.id!==candidate.id)proposed.scores[key(candidate.id,med.id)]=med.id==='citalopram'?candidate.score:med.id==='medicine-c'?candidate.otherScore:null;}state.simulation={candidate,original,proposed};save();return clone(state.simulation);},
       applySimulation(){if(!state.simulation)throw Error('Choose and simulate a candidate first.');state.medicines=state.simulation.proposed.medicines;state.scores=state.simulation.proposed.scores;state.selectedPair=[state.simulation.candidate.id,'citalopram'];state.simulation=null;return save();},
+      // Real-substitution counterpart to simulate() above: instead of looking
+      // a candidate up from this file's own 3-item fixture (and only ever
+      // knowing how to replace the 'amitriptyline' id), this records the
+      // ACTUAL candidate a real /predict/substitute call returned, for
+      // whichever drug in the current regimen the caller says is being
+      // replaced. It intentionally does not compute proposed/original scores
+      // itself — regimen-simulation.js fetches real /predict/regimen scores
+      // for both regimens instead of inventing them here. Left alongside
+      // simulate()/applySimulation() rather than replacing them so the
+      // existing demo-fixture tests for those keep passing unchanged.
+      setPendingSubstitution(candidate,replacedMedicineId,fixedMedicineId){
+        if(!state.medicines.some(m=>m.id===replacedMedicineId))throw Error('The medicine being replaced is no longer in the regimen.');
+        state.simulation={isReal:true,candidate:clone(candidate),replacedMedicineId,fixedMedicineId};
+        return save();
+      },
       reset(){state=source.getInitialCase();return save();}
     };
     if(restoreCandidate){try{store.simulate(restoreCandidate);}catch{}}

@@ -1,6 +1,16 @@
-// Same real-CID map as workspace.js (kept local/duplicated rather than
-// shared, matching this codebase's existing no-shared-config convention).
+// Same real-CID lookup as workspace.js: static seed CIDs plus anything the
+// user added via the real vocab search (persisted in workspace.js's
+// DYNAMIC_CID_STORE_KEY). Kept local/duplicated rather than shared, matching
+// this codebase's existing no-shared-config convention.
 const PUBCHEM_CID_BY_MEDICINE_ID = { amitriptyline: 2160, citalopram: 2771 };
+const DYNAMIC_CID_STORE_KEY = 'pharmagnn_medicine_cids';
+function loadDynamicCidMap() {
+  try { return JSON.parse(localStorage.getItem(DYNAMIC_CID_STORE_KEY) || '{}'); }
+  catch { return {}; }
+}
+function getMedicineCid(medicineId) {
+  return PUBCHEM_CID_BY_MEDICINE_ID[medicineId] || loadDynamicCidMap()[medicineId] || null;
+}
 
 renderWorkspaceShell('Demographic lens');
 UI.text('pageHeading','The same regimen. More context.');UI.text('pageSubhead','Compare estimates without hiding uncertainty or missing evidence.');UI.text('contextSubtitle','Demo case 004');
@@ -20,8 +30,8 @@ async function syncRealEstimate() {
   const myToken = ++estimateRequestToken;
   const pair = UI.pair();
   if (pair.length !== 2 || !window.ApiClient || !ApiClient.isAuthenticated()) return;
-  const cidA = PUBCHEM_CID_BY_MEDICINE_ID[pair[0].id];
-  const cidB = PUBCHEM_CID_BY_MEDICINE_ID[pair[1].id];
+  const cidA = getMedicineCid(pair[0].id);
+  const cidB = getMedicineCid(pair[1].id);
   if (!cidA || !cidB) return;
 
   try {

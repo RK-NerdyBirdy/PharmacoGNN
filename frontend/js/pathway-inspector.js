@@ -1,5 +1,18 @@
 (function () {
+  // Same real-CID lookup as workspace.js: static seed CIDs plus anything the
+  // user has added via the real vocab search (persisted in workspace.js's
+  // DYNAMIC_CID_STORE_KEY). Kept local/duplicated rather than shared,
+  // matching this codebase's existing no-shared-config convention.
   const PUBCHEM_CID_BY_MEDICINE_ID = { amitriptyline: 2160, citalopram: 2771 };
+  const DYNAMIC_CID_STORE_KEY = 'pharmagnn_medicine_cids';
+  function loadDynamicCidMap() {
+    try { return JSON.parse(localStorage.getItem(DYNAMIC_CID_STORE_KEY) || '{}'); }
+    catch { return {}; }
+  }
+  function getMedicineCid(medicineId) {
+    return PUBCHEM_CID_BY_MEDICINE_ID[medicineId] || loadDynamicCidMap()[medicineId] || null;
+  }
+
   const inspectorData = {
     pageHeading: 'Amitriptyline × citalopram',
     pageSubhead: 'Score 82 / 100',
@@ -66,12 +79,25 @@
     activePathwayKey: 'cardiac',
   };
 
+  const pair = UI.pair();
+  // Real predictions/explanations only need two drugs the model actually
+  // knows (a real CID each) — NOT the specific demo fixture pair. The old
+  // gate here was `!PharmaStore.hasFixture()`, which blocked every real
+  // /explain/interaction call for any pair other than amitriptyline +
+  // citalopram, even though that endpoint works for any real-CID pair (it's
+  // exactly what syncRealExplanation() below already overlays onto the demo
+  // pair). The hand-curated illustrative subgraph (KCNH2/SERT nodes etc.) is
+  // still only meaningful for that one pair — there's no curated pharmacology
+  // content for arbitrary pairs — so that part alone stays fixture-only.
+  const bothReal = pair.length === 2 && getMedicineCid(pair[0].id) && getMedicineCid(pair[1].id);
+  const isDemoFixturePair = PharmaStore.hasFixture();
 
-  if(!PharmaStore.hasFixture()){
+  if (!bothReal) {
     renderWorkspaceShell('Pathway inspector');
-    document.querySelector('.workspace-content').innerHTML='<h1 class="workspace-heading">Evidence is still needed.</h1><article class="ws-card empty-state"><h2>No pathway fixture for this pair</h2><p>'+UI.escape(UI.pair().map(m=>m.name).join(' + ')||'Add two medicines first')+'</p><p>The demo only includes pathways for amitriptyline and citalopram. Unknown does not mean safe.</p><a class="btn btn-primary" href="workspace.html">Return to regimen</a></article>';
+    document.querySelector('.workspace-content').innerHTML='<h1 class="workspace-heading">Evidence is still needed.</h1><article class="ws-card empty-state"><h2>No real interaction data for this pair</h2><p>'+UI.escape(pair.map(m=>m.name).join(' + ')||'Add two medicines first')+'</p><p>Add two medicines the model actually knows (via the real search in "Add a medicine") to inspect a real evidence pathway. Unknown does not mean safe.</p><a class="btn btn-primary" href="workspace.html">Return to regimen</a></article>';
     return;
   }
+
   function activePathway() {
     return inspectorData.pathways[inspectorData.activePathwayKey];
   }
@@ -211,24 +237,73 @@
     document.getElementById('viewEvidenceBtn').textContent = inspectorData.evidenceButtonLabel;
   }
 
+  // Placeholder toolbar/node-detail content for a real (non-demo-fixture)
+  // pair, shown immediately while syncRealExplanation() below fetches the
+  // genuine model explanation — no illustrative-graph content is invented
+  // for a pair we have no curated pharmacology diagram for.
+  function renderRealOnlyToolbar() {
+    document.getElementById('pairPill').textContent = pair.map((m) => m.name).join(' × ');
+    document.getElementById('scorePill').textContent = 'Loading…';
+    document.getElementById('findAlternativesBtn').textContent = inspectorData.findAlternativesLabel;
+    document.getElementById('pathwayFootnote').textContent =
+      'No curated illustrative diagram exists for this pair — showing the real model explanation only.';
+  }
+
+  function renderRealOnlyNodeDetail() {
+    document.getElementById('nodeTitle').textContent = pair.map((m) => m.name).join(' + ');
+    document.getElementById('nodeSubtitle').textContent = 'Real model explanation';
+    document.getElementById('nodePill').textContent = inspectorData.nodePillLabel;
+    document.getElementById('whyTitle').textContent = 'Loading explanation…';
+    document.getElementById('whyText').textContent = '';
+    document.getElementById('sourceStatusLabel').textContent = '';
+    document.getElementById('sourceStatusText').textContent = '';
+    document.getElementById('attributionLabel').textContent = '';
+    document.getElementById('attributionText').textContent = '';
+    document.getElementById('viewEvidenceBtn').textContent = inspectorData.evidenceButtonLabel;
+  }
+
   document.getElementById('findAlternativesBtn').onclick=()=>UI.go('substitution-engine');
-  document.getElementById('viewEvidenceBtn').onclick=()=>UI.modal('Evidence details','<p>This is an illustrative graph, not a validated causal explanation.</p><dl><dt>Selected node</dt><dd>'+UI.escape(nodeById(activePathway().selectedNodeId).label)+'</dd><dt>Source status</dt><dd>Curated source records are not connected yet.</dd><dt>Model</dt><dd>demo-v0.1 · synthetic fixtures</dd></dl>');
+
+  // Populated by syncRealExplanation() below; used by the evidence-details
+  // modal so it shows the real explanation whenever one was fetched,
+  // regardless of whether this is the demo fixture pair.
+  let lastRealExplanation = null;
+
+  document.getElementById('viewEvidenceBtn').onclick=()=>{
+    if (lastRealExplanation) {
+      const r = lastRealExplanation;
+      UI.modal('Evidence details','<p>Real model explanation for this pair.</p><dl><dt>Pair</dt><dd>'+UI.escape(r.drug_a_name+' × '+r.drug_b_name)+'</dd><dt>Risk score</dt><dd>'+Math.round(r.risk_score)+' / 100</dd><dt>Severity</dt><dd>'+UI.escape(r.explanation.severity_classification)+'</dd><dt>Adverse effect</dt><dd>'+UI.escape(r.adverse_effect)+'</dd><dt>Source</dt><dd>Real HGTConv model prediction (POST /explain/interaction)</dd></dl>');
+      return;
+    }
+    if (isDemoFixturePair) {
+      UI.modal('Evidence details','<p>This is an illustrative graph, not a validated causal explanation.</p><dl><dt>Selected node</dt><dd>'+UI.escape(nodeById(activePathway().selectedNodeId).label)+'</dd><dt>Source status</dt><dd>Curated source records are not connected yet.</dd><dt>Model</dt><dd>demo-v0.1 · synthetic fixtures</dd></dl>');
+      return;
+    }
+    UI.modal('Evidence details','<p>No real explanation is available for this pair yet.</p>');
+  };
+
   // Overlays real /explain/interaction content (mechanism, severity,
-  // guidance, real risk score) onto the panel renderNodeDetail() just filled
-  // with illustrative copy — only for the real-CID pair, leaves the
-  // illustrative graph/text as-is on any failure or unsupported pair.
+  // guidance, real risk score) onto the panel renderNodeDetail() (or
+  // renderRealOnlyNodeDetail()) just filled with placeholder/illustrative
+  // copy — works for any pair with two real, model-known CIDs, not just the
+  // demo fixture pair.
   async function syncRealExplanation() {
-    const pair = UI.pair();
-    if (pair.length !== 2 || !window.ApiClient || !ApiClient.isAuthenticated()) return;
-    const cidA = PUBCHEM_CID_BY_MEDICINE_ID[pair[0].id];
-    const cidB = PUBCHEM_CID_BY_MEDICINE_ID[pair[1].id];
-    if (!cidA || !cidB) return;
+    if (!window.ApiClient || !ApiClient.isAuthenticated()) {
+      if (!isDemoFixturePair) {
+        document.getElementById('whyTitle').textContent = 'Sign in required';
+        document.getElementById('whyText').textContent = 'Real explanations require an authenticated session.';
+      }
+      return;
+    }
+    const cidA = getMedicineCid(pair[0].id);
+    const cidB = getMedicineCid(pair[1].id);
 
     try {
       const result = await ApiClient.explainInteraction({
         drug_a_cid: ApiClient.toModelCid(cidA),
         drug_b_cid: ApiClient.toModelCid(cidB),
       });
+      lastRealExplanation = result;
       const ex = result.explanation;
       document.getElementById('pageHeading').textContent = `${result.drug_a_name} × ${result.drug_b_name}`;
       document.getElementById('pageSubhead').textContent = `Score ${Math.round(result.risk_score)} / 100`;
@@ -240,20 +315,40 @@
       document.getElementById('attributionLabel').textContent = 'ACTIONABLE GUIDANCE';
       document.getElementById('attributionText').textContent = ex.actionable_guidance;
       if (!ex.xai_pathway.data_available) {
-        document.getElementById('pathwayFootnote').textContent =
-          'No real graph topology available for this pair yet — showing the illustrative subgraph below.';
+        document.getElementById('pathwayFootnote').textContent = isDemoFixturePair
+          ? 'No real graph topology available for this pair yet — showing the illustrative subgraph below.'
+          : 'No curated illustrative diagram exists for this pair — showing the real model explanation only.';
       }
     } catch (err) {
-      console.warn('Real interaction explanation unavailable, showing illustrative copy:', err.message);
+      console.warn('Real interaction explanation unavailable:', err.message);
+      if (!isDemoFixturePair) {
+        // No illustrative fallback exists for a non-fixture pair, so say so
+        // plainly instead of leaving "Loading explanation…" up forever.
+        document.getElementById('whyTitle').textContent = 'No explanation available';
+        document.getElementById('whyText').textContent =
+          'The model could not return an explanation for this pair (' + err.message + ').';
+      }
     }
   }
 
   renderWorkspaceShell('Pathway inspector');
   renderHeading();
-  renderToolbar();
-  renderTabs();
-  renderEdgeLegend();
-  renderGraph();
-  renderNodeDetail();
+  if (isDemoFixturePair) {
+    renderToolbar();
+    renderTabs();
+    renderEdgeLegend();
+    renderGraph();
+    renderNodeDetail();
+  } else {
+    // Real pair, but no curated illustrative diagram — clear the
+    // graph/tabs/legend areas rather than showing the demo pair's diagram
+    // under a different label.
+    document.getElementById('pathwayTabs').innerHTML = '';
+    document.getElementById('pathwaySvg').innerHTML = '';
+    document.getElementById('edgeLegend').innerHTML = '';
+    document.getElementById('pathwaySubtitle').textContent = 'No illustrative diagram for this pair.';
+    renderRealOnlyToolbar();
+    renderRealOnlyNodeDetail();
+  }
   syncRealExplanation();
 })();
