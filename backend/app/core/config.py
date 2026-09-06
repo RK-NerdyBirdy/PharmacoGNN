@@ -125,6 +125,16 @@ class Settings(BaseSettings):
     # regimen and many flagged pairs.
     REPORT_MAX_EXPLANATIONS: int = 10
 
+    # --- Phase F: clinician-to-clinician transfer (patient OTP consent) ---
+    # The receiving clinician never has to accept and the sender never loses
+    # access -- consent just adds a second active PatientAssignment. Only the
+    # patient's typed OTP gates it.
+    TRANSFER_OTP_TTL_MINUTES: int = 10
+    TRANSFER_OTP_MAX_ATTEMPTS: int = 5
+    # Stricter than RATE_LIMIT_AUTH: resend is patient-initiated and cheap to
+    # spam-click, and each resend is a real email send.
+    RATE_LIMIT_OTP_RESEND: str = "3/hour"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]

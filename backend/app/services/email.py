@@ -119,3 +119,21 @@ def build_invite_email(to: str, token: str) -> SentMessage:
     return SentMessage(
         to=to, subject="Set up your PharmacoGNN account", body=body, template="patient_invite"
     )
+
+
+def build_transfer_otp_email(to: str, otp: str, from_clinician_email: str, to_clinician_email: str) -> SentMessage:
+    minutes = settings.TRANSFER_OTP_TTL_MINUTES
+    attempts = settings.TRANSFER_OTP_MAX_ATTEMPTS
+    body = (
+        f"Your clinician ({from_clinician_email}) has requested to share your medical record "
+        f"with another clinician ({to_clinician_email}).\n\n"
+        "If you consent to this, enter the following code in the app:\n\n"
+        f"    {otp}\n\n"
+        f"This code expires in {minutes} minutes and can be entered up to {attempts} times "
+        "before it locks.\n\n"
+        "If you do not consent, you can decline the request in the app, or simply ignore this "
+        "message -- no access will be shared unless you enter this code.\n"
+    )
+    return SentMessage(
+        to=to, subject="Confirm sharing your medical record", body=body, template="transfer_otp"
+    )
