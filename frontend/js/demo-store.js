@@ -17,7 +17,12 @@
   };
   const provider = {getInitialCase:()=>clone(fixture),getUser:()=>clone(fixture.user),getCandidates:()=>clone(candidates)};
   function classifyScore(n){return n==null?'unknown':n>=70?'priority':n>=30?'review':'lower';}
-  function valid(s){return s?.version===1 && Array.isArray(s.medicines) && s.medicines.length<=12 && s.medicines.every(m=>typeof m.id==='string' && typeof m.name==='string' && m.name.length<=60 && typeof m.dose==='string') && new Set(s.medicines.map(m=>m.id)).size===s.medicines.length && s.context && Number.isInteger(s.context.age) && s.context.age>=0 && s.context.age<=120 && ['female','male','unknown'].includes(s.context.sex) && typeof s.context.stratify==='boolean' && s.scores && Object.values(s.scores).every(v=>v===null || Number.isFinite(v)&&v>=0&&v<=100) && Array.isArray(s.selectedPair);}
+  // Name cap is 250, not the older 60 — real PubChem/model vocabulary names
+  // (IUPAC names for compounds with no common name) routinely run well past
+  // 60 characters, and the "Add a medicine" search now feeds real vocabulary
+  // names in here instead of short hand-typed ones.
+  const MEDICINE_NAME_MAX = 250;
+  function valid(s){return s?.version===1 && Array.isArray(s.medicines) && s.medicines.length<=12 && s.medicines.every(m=>typeof m.id==='string' && typeof m.name==='string' && m.name.length<=MEDICINE_NAME_MAX && typeof m.dose==='string') && new Set(s.medicines.map(m=>m.id)).size===s.medicines.length && s.context && Number.isInteger(s.context.age) && s.context.age>=0 && s.context.age<=120 && ['female','male','unknown'].includes(s.context.sex) && typeof s.context.stratify==='boolean' && s.scores && Object.values(s.scores).every(v=>v===null || Number.isFinite(v)&&v>=0&&v<=100) && Array.isArray(s.selectedPair);}
   function createStore(storage, source=provider){
     const storageKey='pharmagnn-demo-v1'; let state=source.getInitialCase(),restoreCandidate;
     try {const loaded=JSON.parse(storage?.getItem(storageKey)||'null');if(valid(loaded)){restoreCandidate=loaded.simulation?.candidate?.id;state=loaded;state.simulation=null;}}catch{}
@@ -30,7 +35,7 @@
       getState:()=>clone(state),getUser:()=>source.getUser(),score,
       addMedicine(name,dose=''){
         name=String(name).trim();dose=String(dose).trim();
-        if(!name||name.length>60||dose.length>40)throw Error('Enter a medicine name (up to 60 characters) and a dose up to 40 characters.');
+        if(!name||name.length>MEDICINE_NAME_MAX||dose.length>40)throw Error('Enter a medicine name (up to '+MEDICINE_NAME_MAX+' characters) and a dose up to 40 characters.');
         if(state.medicines.length>=12)throw Error('This demo supports up to 12 medicines.');
         if(state.medicines.some(m=>m.name.toLowerCase()===name.toLowerCase()))throw Error('This medicine is already in the regimen.');
         const known=source.getInitialCase().medicines.find(m=>m.name.toLowerCase()===name.toLowerCase());
