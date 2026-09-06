@@ -26,8 +26,95 @@ function rememberMedicineCid(medicineId, cid) {
     localStorage.setItem(DYNAMIC_CID_STORE_KEY, JSON.stringify(map));
   } catch {}
 }
+// Real patients' regimen rows already carry their own pubchem_cid — no need
+// for the name-keyed static/dynamic maps above, which only exist for the
+// synthetic demo case's opaque ids. Checked first so a real patient's drug
+// always resolves to its own real CID.
+let realCidById = {};
 function getMedicineCid(medicineId) {
-  return PUBCHEM_CID_BY_MEDICINE_ID[medicineId] || loadDynamicCidMap()[medicineId] || null;
+  return realCidById[medicineId] || PUBCHEM_CID_BY_MEDICINE_ID[medicineId] || loadDynamicCidMap()[medicineId] || null;
+}
+
+// --- Real patient mode ---------------------------------------------------
+// By default this page shows the synthetic demo case (PharmaStore), same as
+// always. A clinician can instead pick one of their real patients here; that
+// swaps the medicine list/matrix/review card over to that patient's actual
+// regimen (POST/PATCH-ed through the real /patients/{id}/regimens endpoints)
+// without touching PharmaStore or any other page. currentState()/pair() below
+// are the seam: everything downstream in this file reads through them
+// instead of calling PharmaStore.getState()/UI.pair() directly, so the two
+// modes share one render path.
+const ACTIVE_PATIENT_KEY = 'pharmagnn_active_patient';
+function getActivePatient() {
+  try { return JSON.parse(localStorage.getItem(ACTIVE_PATIENT_KEY) || 'null'); } catch { return null; }
+}
+function setActivePatient(p) {
+  try { p ? localStorage.setItem(ACTIVE_PATIENT_KEY, JSON.stringify(p)) : localStorage.removeItem(ACTIVE_PATIENT_KEY); } catch {}
+}
+let activePatient = getActivePatient();
+let realMedicines = null, realContext = null, realSelectedPair = [];
+
+function currentState() {
+  if (activePatient) return { medicines: realMedicines || [], context: realContext || { age: '—', sex: '—' }, selectedPair: realSelectedPair, scores: {} };
+  return PharmaStore.getState();
+}
+function pair() {
+  const s = currentState();
+  return s.selectedPair.map((id) => s.medicines.find((m) => m.id === id)).filter(Boolean);
+}
+
+let loadPatientRequestToken = 0;
+async function loadRealPatient() {
+  if (!activePatient) return;
+  const myToken = ++loadPatientRequestToken; // guards against two overlapping loads (e.g. a quick add then a discontinue) resolving out of order and clobbering each other's render
+  document.getElementById('medicineList').innerHTML = '<li class="empty-state">Loading patient regimen…</li>';
+  try {
+    const [profile, regimens] = await Promise.all([
+      ApiClient.getPatient(activePatient.id),
+      ApiClient.getPatientRegimens(activePatient.id, true),
+    ]);
+    if (myToken !== loadPatientRequestToken) return;
+    realMedicines = regimens.map((r) => ({ id: r.id, name: r.drug_name, dose: r.dosage }));
+    realCidById = Object.fromEntries(regimens.map((r) => [r.id, r.pubchem_cid]));
+    realContext = { age: profile.age, sex: profile.biological_sex };
+    if (!(realSelectedPair.length === 2 && realSelectedPair.every((id) => realMedicines.some((m) => m.id === id)))) {
+      realSelectedPair = realMedicines.length >= 2 ? [realMedicines[0].id, realMedicines[1].id] : [];
+    }
+    render();
+  } catch (err) {
+    if (myToken !== loadPatientRequestToken) return;
+    document.getElementById('medicineList').innerHTML = '<li class="empty-state">' + UI.escape(ApiClient.getErrorMessage(err)) + '</li>';
+  }
+}
+
+async function renderPatientSwitcher() {
+  const bar = document.getElementById('patientSwitcherBar');
+  bar.innerHTML = '<span class="context-title">Viewing</span><span class="pill pill-muted">' + UI.escape(activePatient ? activePatient.name : 'Demo case (synthetic)') + '</span><button class="btn btn-edit" id="switchPatientBtn" type="button" aria-label="Change patient">⇄</button>';
+  document.getElementById('switchPatientBtn').onclick = openPatientSwitcher;
+}
+
+async function openPatientSwitcher() {
+  const d = UI.modal('Change patient', '<p class="field-note" id="patientSwitchStatus">Loading your patients…</p><ul class="candidate-list" id="patientSwitchList" style="max-height:320px;overflow-y:auto"></ul>');
+  const e = UI.escape;
+  let patients = [];
+  let loadError = null;
+  try { patients = await ApiClient.getPatientList(200, 0); } catch (err) { loadError = ApiClient.getErrorMessage(err); }
+  document.getElementById('patientSwitchStatus').textContent = loadError ? loadError : '';
+  document.getElementById('patientSwitchList').innerHTML =
+    '<li><button type="button" class="candidate-row" data-demo="1">Demo case (synthetic)</button></li>' +
+    patients.map((p) => '<li><button type="button" class="candidate-row" data-id="' + e(p.id) + '" data-name="' + e(p.legal_name) + '">' + e(p.legal_name) + ' <span class="candidate-subtitle">' + p.active_regimen_count + ' active med(s)</span></button></li>').join('') +
+    (patients.length || loadError ? '' : '<li class="empty-state">No patients assigned to you yet.</li>');
+  document.getElementById('patientSwitchList').onclick = (ev) => {
+    const b = ev.target.closest('button'); if (!b) return;
+    if (b.dataset.demo) {
+      activePatient = null; setActivePatient(null); realMedicines = null; realCidById = {};
+    } else {
+      activePatient = { id: b.dataset.id, name: b.dataset.name }; setActivePatient(activePatient);
+    }
+    d.close();
+    renderPatientSwitcher();
+    if (activePatient) loadRealPatient(); else render();
+  };
 }
 
 renderWorkspaceShell('Regimen overview');
@@ -117,16 +204,17 @@ function renderReviewCard(pair,value){
   document.getElementById('inspectPathwayBtn').disabled=pair.length<2;document.getElementById('findAlternativesBtn').disabled=pair.length<2;
 }
 
-function render(){const s=PharmaStore.getState(),e=UI.escape;
-  document.getElementById('contextBar').innerHTML='<span class="context-title">Patient Information</span><span class="pill pill-muted">Age '+s.context.age+'</span><span class="pill pill-muted">'+e(s.context.sex)+'</span><a class="btn btn-edit" href="demographic-lens.html" aria-label="Edit patient information">✎</a>';
-  document.getElementById('medicineList').innerHTML=s.medicines.map((m,i)=>'<li class="medicine-item"><span class="medicine-badge">'+String.fromCharCode(65+i)+'</span><span class="medicine-info"><span class="medicine-name" title="'+e(m.name)+'">'+e(m.name)+'</span><br><span class="medicine-detail">'+e(m.dose||'Dose not entered')+'</span></span>'+(getMedicineCid(m.id)?'<button class="medicine-view3d" type="button" data-view3d="'+e(m.id)+'" data-name="'+e(m.name)+'">View 3D</button>':'')+'<button class="medicine-remove" data-remove="'+e(m.id)+'" aria-label="Remove '+e(m.name)+'">×</button></li>').join('')||'<li class="empty-state">Your regimen is empty. Add medicines to begin.</li>';
+function render(){const s=currentState(),e=UI.escape;
+  renderPatientSwitcher();
+  document.getElementById('contextBar').innerHTML='<span class="context-title">Patient Information</span><span class="pill pill-muted">Age '+e(s.context.age)+'</span><span class="pill pill-muted">'+e(s.context.sex)+'</span>'+(activePatient?'':'<a class="btn btn-edit" href="demographic-lens.html" aria-label="Edit patient information">✎</a>');
+  document.getElementById('medicineList').innerHTML=s.medicines.map((m,i)=>'<li class="medicine-item"><span class="medicine-badge">'+String.fromCharCode(65+i)+'</span><span class="medicine-info"><span class="medicine-name" title="'+e(m.name)+'">'+e(m.name)+'</span><br><span class="medicine-detail">'+e(m.dose||'Dose not entered')+'</span></span>'+(getMedicineCid(m.id)?'<button class="medicine-view3d" type="button" data-view3d="'+e(m.id)+'" data-name="'+e(m.name)+'">View 3D</button>':'')+'<button class="medicine-remove" data-remove="'+e(m.id)+'" aria-label="Remove '+e(m.name)+'">×</button></li>').join('')||'<li class="empty-state">'+(activePatient?'No active medications on record for this patient.':'Your regimen is empty. Add medicines to begin.')+'</li>';
   document.getElementById('interactionMatrix').innerHTML=UI.matrix(s,true);UI.text('matrixLegendLabels',UI.key(s.medicines));
   markUnverifiedCells();
   applyMatrixScale();
-  const pair=UI.pair();
-  const bothReal=pair.length===2&&getMedicineCid(pair[0].id)&&getMedicineCid(pair[1].id);
-  const value=bothReal?PharmaStore.score(...s.selectedPair):null;
-  renderReviewCard(pair,value);
+  const p=pair();
+  const bothReal=p.length===2&&getMedicineCid(p[0].id)&&getMedicineCid(p[1].id);
+  const value=bothReal&&!activePatient?PharmaStore.score(...s.selectedPair):null;
+  renderReviewCard(p,value);
   const graphBtn=document.getElementById('viewDrugGraphBtn');if(graphBtn)graphBtn.disabled=s.medicines.length<2;
   syncRealPredictions();
 }
@@ -139,7 +227,7 @@ function render(){const s=PharmaStore.getState(),e=UI.escape;
 let predictionRequestToken = 0;
 async function syncRealPredictions() {
   const myToken = ++predictionRequestToken;
-  const s = PharmaStore.getState();
+  const s = currentState();
   const eligible = s.medicines
     .map((m, i) => ({ m, letter: String.fromCharCode(65 + i), cid: getMedicineCid(m.id) }))
     .filter((x) => x.cid);
@@ -175,22 +263,37 @@ async function syncRealPredictions() {
   // The review card below the matrix shows the same selected pair — keep it
   // in agreement with the cell just overwritten above rather than leaving it
   // on whatever demo-fixture value render() computed synchronously earlier.
-  const pair = UI.pair();
-  if (pair.length === 2) {
-    const i = eligible.findIndex((x) => x.m.id === pair[0].id);
-    const j = eligible.findIndex((x) => x.m.id === pair[1].id);
+  const p = pair();
+  if (p.length === 2) {
+    const i = eligible.findIndex((x) => x.m.id === p[0].id);
+    const j = eligible.findIndex((x) => x.m.id === p[1].id);
     if (i !== -1 && j !== -1) {
-      renderReviewCard(pair, Math.round(result.interaction_matrix[i][j]));
+      renderReviewCard(p, Math.round(result.interaction_matrix[i][j]));
     }
   }
 }
-document.getElementById('medicineList').onclick=e=>{
+document.getElementById('medicineList').onclick=async e=>{
   const remove=e.target.closest('[data-remove]');
-  if(remove){PharmaStore.removeMedicine(remove.dataset.remove);render();UI.announce('Medicine removed. Regimen updated.');return;}
+  if(remove){
+    if(activePatient){
+      // Real patients: "remove" discontinues (sets end_date) rather than
+      // deleting the record, matching the backend's normal-remove semantics.
+      remove.disabled=true;
+      try{await ApiClient.updateRegimen(activePatient.id,remove.dataset.remove,{end_date:new Date().toISOString().slice(0,10)});UI.announce('Medication discontinued.');loadRealPatient();}
+      catch(err){UI.announce(ApiClient.getErrorMessage(err));remove.disabled=false;}
+    }else{
+      PharmaStore.removeMedicine(remove.dataset.remove);render();UI.announce('Medicine removed. Regimen updated.');
+    }
+    return;
+  }
   const view3d=e.target.closest('[data-view3d]');
   if(view3d)window.openMoleculeViewer(getMedicineCid(view3d.dataset.view3d),view3d.dataset.name);
 };
-document.getElementById('interactionMatrix').onclick=e=>{const b=e.target.closest('[data-a]');if(b){PharmaStore.selectPair(b.dataset.a,b.dataset.b);const pair=UI.pair(),shownScore=Number(b.textContent.trim()),value=Number.isFinite(shownScore)&&b.textContent.trim()!==''?shownScore:PharmaStore.score(...PharmaStore.getState().selectedPair);renderReviewCard(pair,value);UI.announce('Selected '+pair.map(m=>m.name).join(' and '));}};
+document.getElementById('interactionMatrix').onclick=e=>{const b=e.target.closest('[data-a]');if(b){
+  if(activePatient){realSelectedPair=[b.dataset.a,b.dataset.b];}else{PharmaStore.selectPair(b.dataset.a,b.dataset.b);}
+  const p=pair(),shownScore=Number(b.textContent.trim()),value=Number.isFinite(shownScore)&&b.textContent.trim()!==''?shownScore:(activePatient?null:PharmaStore.score(...PharmaStore.getState().selectedPair));
+  renderReviewCard(p,value);UI.announce('Selected '+p.map(m=>m.name).join(' and '));
+}};
 document.getElementById('inspectPathwayBtn').onclick=()=>UI.go('pathway-inspector');document.getElementById('findAlternativesBtn').onclick=()=>UI.go('substitution-engine');
 const drugGraphBtn=document.getElementById('viewDrugGraphBtn');if(drugGraphBtn)drugGraphBtn.onclick=()=>window.openDrugGraph();
 
@@ -225,32 +328,50 @@ function addMedicine(){
     submitBtn.disabled=false;
   });
 
-  document.getElementById('medicineForm').onsubmit=e=>{
+  document.getElementById('medicineForm').onsubmit=async e=>{
     e.preventDefault();
     if(!selected){UI.text('medicineError','Pick a drug from the search results first.');return;}
+    const dose=document.getElementById('medicineDose').value;
+    if(activePatient){
+      try{
+        await ApiClient.addRegimen(activePatient.id,{drug_name:selected.name,pubchem_cid:selected.cid,dosage:dose||null,start_date:new Date().toISOString().slice(0,10)});
+        d.close();UI.announce('Medication added.');loadRealPatient();
+      }catch(err){UI.text('medicineError',ApiClient.getErrorMessage(err));}
+      return;
+    }
     try{
-      const created=PharmaStore.addMedicine(selected.name,document.getElementById('medicineDose').value);
+      const created=PharmaStore.addMedicine(selected.name,dose);
       rememberMedicineCid(created.id,selected.cid);
       d.close();render();UI.announce('Medicine added. Regimen updated.');
     }catch(error){UI.text('medicineError',error.message);}
   };
   searchInput.focus();
 }
-document.getElementById('addMedicineBtn').onclick=addMedicine;render();if(location.hash==='#add-medicine')addMedicine();
+document.getElementById('addMedicineBtn').onclick=addMedicine;
+if(activePatient)loadRealPatient();else render();
+if(location.hash==='#add-medicine')addMedicine();
 
 // Exposed so drug-graph.js can build the 3D relationship graph from the same
 // live regimen state driving the 2D matrix above — not a separate dataset.
 // Thresholds (70/30) match PharmaDemo.classifyScore exactly, so the 3D view's
 // priority/review/lower coloring agrees with the 2D matrix's.
 window.getRegimenGraphData = function () {
-  const s = PharmaStore.getState();
+  const s = currentState();
   const medicines = s.medicines.map((m, i) => ({ letter: String.fromCharCode(65 + i), name: m.name }));
+  // Reads whatever is actually painted in the matrix cells right now (after
+  // syncRealPredictions() has overlaid real scores) rather than PharmaStore's
+  // demo score map directly -- that map is a stale/synthetic value once a
+  // pair has a real overlay (e.g. matrix shows 98, PharmaStore.score() still
+  // says 82), and doesn't apply at all in real-patient mode.
+  const table = document.getElementById('interactionMatrix');
   const matrixScores = {};
   for (let i = 0; i < s.medicines.length; i++) {
     for (let j = i + 1; j < s.medicines.length; j++) {
-      const a = s.medicines[i], b = s.medicines[j];
       const letterKey = [String.fromCharCode(65 + i), String.fromCharCode(65 + j)].sort().join('-');
-      matrixScores[letterKey] = getMedicineCid(a.id) && getMedicineCid(b.id) ? PharmaStore.score(a.id, b.id, s) : null;
+      const cell = table && table.querySelector(`tbody tr:nth-child(${i + 1}) td:nth-child(${j + 2})`);
+      const text = cell ? cell.textContent.trim() : '';
+      const num = Number(text);
+      matrixScores[letterKey] = text !== '' && Number.isFinite(num) ? num : null;
     }
   }
   return { medicines, matrixScores, thresholds: { priority: 70, review: 30 } };
