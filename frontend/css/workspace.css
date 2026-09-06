@@ -1525,3 +1525,52 @@ body,.workspace-body,.workspace-body *{font-family:'Fredoka',sans-serif!importan
 .screen-overview #matrixCard .interaction-matrix td > span {
   font-size: var(--matrix-font-size, 16px) !important;
 }
+
+/* ---------- Auth (login/register) ---------- */
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+}
+.auth-brand {
+  margin-bottom: 24px;
+}
+.auth-title {
+  font-family: 'Fraunces', 'Fredoka', serif;
+  font-size: 26px;
+  margin: 0 0 4px;
+  color: var(--ink);
+}
+.auth-subtitle {
+  color: var(--ink-soft);
+  font-size: 13px;
+  margin: 0 0 20px;
+}
+.auth-error {
+  color: var(--magenta-deep, #b52360);
+  font-size: 12.5px;
+  min-height: 1em;
+  margin: 10px 0 0;
+}
+.auth-submit {
+  margin-top: 16px;
+}
+.auth-switch {
+  text-align: center;
+  margin: 18px 0 0;
+}
+.auth-switch button {
+  background: none;
+  border: none;
+  color: var(--pink-tag-text, #b52360);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
