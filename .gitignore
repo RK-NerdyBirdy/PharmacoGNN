@@ -10,3 +10,6 @@ venv/
 # Environment secrets
 .env
 backend/.env
+
+# Ephemeral report PDFs -- durable analysis lives in the DB, not here
+backend/report_files/

@@ -13,6 +13,7 @@ from app.db.base import Base, EncryptedString, EncryptedText, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.audit import AuditLog
+    from app.models.report import InteractionReport
     from app.models.user import User
 
 
@@ -66,6 +67,9 @@ class PatientProfile(TimestampMixin, Base):
         back_populates="patient", cascade="all, delete-orphan"
     )
     regimens: Mapped[list["PatientRegimen"]] = relationship(
+        back_populates="patient", cascade="all, delete-orphan"
+    )
+    reports: Mapped[list["InteractionReport"]] = relationship(
         back_populates="patient", cascade="all, delete-orphan"
     )
     audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="target_patient")
