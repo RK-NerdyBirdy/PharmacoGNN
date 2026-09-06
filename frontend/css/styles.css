@@ -17,6 +17,13 @@
   --card-border: #eacad7;
 }
 
+/* Shared theme tokens. Existing component tokens below inherit these values. */
+:root[data-theme='pink'] { --app-panel:#fffbfc; --app-tint:#f9d9e6; --app-border:#edcddd; --app-shadow:#e8bdd070; }
+:root[data-theme='lavender'] { --bg-paper:#faf7ff; --ink:#342044; --ink-soft:#756487; --pink-pale:#eee7fb; --pink-tag-bg:#e6dcf6; --pink-tag-text:#7250a1; --magenta-deep:#59417d; --magenta-mid:#7654a2; --pink-mid:#b9a1df; --pink-light:#d9c8f0; --wave-1:#e2d7f3; --wave-2:#bea8dc; --wave-3:#59417d; --card-border:#ddd0ee; --app-panel:#fffcff; --app-tint:#e9e0f5; --app-border:#ddd0ee; --app-shadow:#d9cde870; }
+:root[data-theme='mint'] { --bg-paper:#f3fbf8; --ink:#173d35; --ink-soft:#5f7d74; --pink-pale:#e4f4ee; --pink-tag-bg:#d8eee5; --pink-tag-text:#287565; --magenta-deep:#176353; --magenta-mid:#23816e; --pink-mid:#88c9b9; --pink-light:#b5dfd3; --wave-1:#d5eee6; --wave-2:#92cabd; --wave-3:#176353; --card-border:#cde6de; --app-panel:#fcfffe; --app-tint:#ddf0e9; --app-border:#cde6de; --app-shadow:#c8e5dc80; }
+:root[data-theme='blue'] { --bg-paper:#f4f8ff; --ink:#1d3156; --ink-soft:#62738e; --pink-pale:#e4edfb; --pink-tag-bg:#d8e5f7; --pink-tag-text:#2d6297; --magenta-deep:#294c7e; --magenta-mid:#3774ad; --pink-mid:#8eb4df; --pink-light:#bed4ef; --wave-1:#d9e7f7; --wave-2:#95bae0; --wave-3:#294c7e; --card-border:#ccdced; --app-panel:#fbfdff; --app-tint:#e0eaf8; --app-border:#ccdced; --app-shadow:#c8d9eb80; }
+:root[data-theme='dark'] { --bg-paper:#18131b; --ink:#f6e9f0; --ink-soft:#cdb6c2; --pink-pale:#2a1c29; --pink-tag-bg:#3a2638; --pink-tag-text:#ff9cc4; --magenta-deep:#7d1645; --magenta-mid:#d2447c; --pink-mid:#9b466a; --pink-light:#6d344f; --wave-1:#2f2130; --wave-2:#582943; --wave-3:#b23469; --card-border:#4f3344; --app-panel:#241b24; --app-tint:#211720; --app-border:#4f3344; --app-shadow:#0a070b80; }
+
 * { box-sizing: border-box; }
 
 html {

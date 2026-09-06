@@ -1,4 +1,5 @@
 (() => {
+  window.PharmaPreferences?.translateDocument(document);
   const story=document.getElementById('landingStory'),stage=document.getElementById('storyStage');
   const reduce=matchMedia('(prefers-reduced-motion: reduce)'),clamp=x=>Math.max(0,Math.min(1,x)),smooth=x=>{x=clamp(x);return x*x*(3-2*x);};
   const intro=document.querySelector('.intro-copy'),reveal=document.querySelector('.reveal-copy'),features=document.querySelector('.story-features'),actions=document.querySelector('.intro-actions'),footer=document.querySelector('.reveal-footer');

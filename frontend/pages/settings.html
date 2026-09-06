@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PharmaGNN Workspace — Settings</title>
+<link rel="stylesheet" href="../css/styles.css" />
+<link rel="stylesheet" href="../css/workspace.css" />
+</head>
+<body class="workspace-body screen-settings">
+<div class="workspace-shell">
+  <aside class="workspace-sidebar">
+    <div class="brand"><span class="brand-toggle"><span class="brand-toggle-dot"></span></span><span class="brand-name">PharmaGNN</span></div>
+    <div class="sidebar-label">Clinical workspace</div>
+    <nav class="sidebar-nav" id="sidebarNav"></nav>
+    <div class="sidebar-callout"><p class="sidebar-callout-title"></p><p class="sidebar-callout-text"></p></div>
+    <a class="sidebar-footer-link" href="../index.html">&larr; Research demo</a>
+  </aside>
+  <div class="workspace-main">
+    <header class="workspace-topbar"><div class="topbar-right"><div class="avatar" id="userAvatar"></div></div></header>
+    <main class="workspace-content settings-content">
+      <section class="settings-card ws-card" aria-labelledby="settingsTitle">
+        <header class="settings-header"><p class="settings-kicker" data-i18n="nav.settings">Settings</p><h1 id="settingsTitle" data-i18n="settings.title">Settings</h1><p data-i18n="settings.subtitle">Personalise the workspace without changing your clinical case.</p></header>
+        <form id="settingsForm">
+          <fieldset class="settings-group"><legend data-i18n="settings.language">Language</legend><p data-i18n="settings.languageHint">Choose the language used throughout the interface.</p><div class="settings-options" id="languageOptions"></div></fieldset>
+          <fieldset class="settings-group"><legend data-i18n="settings.appearance">Appearance</legend><p data-i18n="settings.appearanceHint">Choose a colour palette for the workspace.</p><div class="theme-options" id="themeOptions"></div></fieldset>
+          <button class="btn btn-primary settings-save" id="saveSettings" type="submit" data-i18n="settings.apply">Apply settings</button>
+        </form>
+      </section>
+    </main>
+    <footer class="workspace-footer"><span id="footerLeft"></span><span id="footerRight"></span></footer>
+  </div>
+</div>
+<script src="../js/demo-store.js"></script>
+<script src="../js/preferences.js"></script>
+<script src="../js/workspace-shared.js"></script>
+<script src="../js/settings.js"></script>
+</body>
+</html>
