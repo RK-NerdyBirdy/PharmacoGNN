@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import datetime as dt
+import io
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID
 
+import qrcode
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, require_role
+from app.core.config import settings
 from app.core.http import client_ip
 from app.models.audit import AuditActionType, AuditLog
 from app.models.patient import PatientProfile, PatientRegimen
@@ -198,6 +201,38 @@ async def download_report_pdf(
     await db.commit()
 
     return FileResponse(path, media_type="application/pdf", filename=f"interaction_report_{report.id}.pdf")
+
+
+@router.get("/reports/{report_id}/qr")
+async def get_report_qr(
+    report_id: UUID,
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """PNG QR code encoding a link to this report on the frontend.
+
+    Carries no credential -- it's a bare URL (`{APP_BASE_URL}/reports/{id}`),
+    not a capability token. Scanning it grants nothing by itself: the
+    frontend still calls GET /api/v1/reports/{id}, which still requires the
+    scanner to be logged in as the patient or an assigned clinician. A
+    photographed or leaked QR image is therefore harmless on its own -- which
+    is also why this endpoint enforces the exact same RBAC as every other
+    report endpoint rather than skipping auth "because it's just a QR code."
+    A soft-deleted report's QR 404s here too, same as GET/pdf.
+    """
+    report = await _load_report_or_404(report_id, db)
+    await load_accessible_patient(report.patient_id, current_user, db)
+
+    url = f"{settings.APP_BASE_URL}/reports/{report_id}"
+    image = qrcode.make(url)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+
+    db.add(_audit(current_user, report.patient_id, AuditActionType.EXPORT, request))
+    await db.commit()
+
+    return Response(content=buffer.getvalue(), media_type="image/png")
 
 
 @router.delete("/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)

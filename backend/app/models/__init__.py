@@ -9,6 +9,7 @@ from app.models.patient import (
     PatientRegimen,
 )
 from app.models.report import InteractionReport, ReportStatus
+from app.models.transfer import PatientTransfer, TransferStatus
 from app.models.user import User, UserRole
 
 __all__ = [
@@ -24,6 +25,8 @@ __all__ = [
     "BiologicalSex",
     "InteractionReport",
     "ReportStatus",
+    "PatientTransfer",
+    "TransferStatus",
     "AuditLog",
     "AuditActionType",
 ]
