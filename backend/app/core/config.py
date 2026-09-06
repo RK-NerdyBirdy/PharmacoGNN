@@ -46,7 +46,7 @@ class Settings(BaseSettings):
 
     # Calibrated loss weight for curated female-biased ADRs (relation_meta.json's
     # `female_weighted` flag), and the ceiling a scaled score is clamped to.
-    FEMALE_ADR_RISK_MULTIPLIER: float = 3.0
+    FEMALE_ADR_RISK_MULTIPLIER: float = 1.15
     RISK_SCORE_CLAMP: float = 99.9
 
     # Phase 2's predict/regimen endpoint flags a pair as "high risk" above this.

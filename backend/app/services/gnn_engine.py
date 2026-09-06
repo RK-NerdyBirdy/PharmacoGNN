@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import logging
@@ -8,6 +9,7 @@ from typing import Any
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch_geometric.nn import HGTConv
 
 from app.core.config import settings
@@ -16,97 +18,105 @@ logger = logging.getLogger(__name__)
 
 # The checkpoint (backend/weights/pharmacognn_deep_state_dict.pth) was reverse-
 # engineered key-by-key: this exact class hierarchy loads it with
-# `strict=True` and every key matching (verified against the real file, not
-# guessed). Do not rename modules/attributes without re-checking against the
-# checkpoint's state_dict keys.
+# `strict=True` and every key matching.
 Metadata = tuple[list[str], list[tuple[str, str, str]]]
 
 _GRAPH_EDGE_FILENAMES = ("graph_edge_index.pt", "hetero_graph.pt", "graph_edges.pt")
 
+# Files that, if they change, mean index i in one artifact may no longer
+# refer to the same drug/protein/relation as index i in another -- see the
+# note on artifact fingerprinting below.
+_VOCAB_FILENAMES_FOR_FINGERPRINT = (
+    "model_config.json",
+    "drug2idx.json",
+    "protein2idx.json",
+    "relation_meta.json",
+)
+
 
 class NodeEmbedding(nn.Module):
-    """Learned input node features, pre-message-passing."""
+    """Learnable per-node-type input embeddings."""
 
-    def __init__(self, num_drugs: int, num_proteins: int, hidden_dim: int) -> None:
+    def __init__(self, num_drugs: int, num_proteins: int, dim: int) -> None:
         super().__init__()
-        self.drug_emb = nn.Embedding(num_drugs, hidden_dim)
-        self.protein_emb = nn.Embedding(num_proteins, hidden_dim)
+        self.drug_emb = nn.Embedding(num_drugs, dim)
+        self.protein_emb = nn.Embedding(num_proteins, dim)
 
 
-class HeteroEncoder(nn.Module):
-    """3-layer HGTConv stack with per-node-type LayerNorm after each layer.
+class HGTResidualEncoder(nn.Module):
+    """4-layer HGTConv stack with residual connections + LayerNorm + GELU."""
 
-    NOTE: the state_dict proves the conv/norm module shapes exactly (verified
-    via strict=True load against the real checkpoint), but LayerNorm/ReLU are
-    parameter-free, so the *inter-layer activation* below cannot be verified
-    the same way. It was actively checked against weights/z_protein.pt (an
-    independently-computed reference protein embedding shipped alongside
-    graph_edge_index.pt) by running this exact encoder over the real graph:
-    ReLU-after-LayerNorm gives mean_abs_diff=0.71 against a reference whose
-    own mean abs value is only 0.80 -- i.e. NOT a match, likely wrong, not
-    just numerical noise. The "no ReLU, LayerNorm only" alternative has not
-    yet been checked (a full 3-layer forward pass over ~1.5M edges takes
-    ~25 min on CPU here). Z_DRUG_CACHE computed via this encoder should be
-    treated as directionally-graph-aware but NOT confirmed numerically
-    correct until this is resolved -- see the training script if it surfaces,
-    or re-run the no-ReLU variant, before trusting absolute risk scores.
-    """
-
-    def __init__(self, hidden_dim: int, num_layers: int, heads: int, metadata: Metadata) -> None:
+    def __init__(self, metadata: Metadata, hidden_dim: int, num_layers: int, heads: int, dropout: float = 0.3) -> None:
         super().__init__()
-        node_types, _ = metadata
-        self.convs = nn.ModuleList(
-            [HGTConv(hidden_dim, hidden_dim, metadata, heads=heads) for _ in range(num_layers)]
-        )
-        self.norms = nn.ModuleList(
-            [nn.ModuleDict({nt: nn.LayerNorm(hidden_dim) for nt in node_types}) for _ in range(num_layers)]
-        )
+        node_types = metadata[0]
+        self.dropout = dropout
+        self.act = nn.GELU()
 
-    def forward(
-        self, x_dict: dict[str, torch.Tensor], edge_index_dict: dict[tuple[str, str, str], torch.Tensor]
-    ) -> dict[str, torch.Tensor]:
-        for conv, norm in zip(self.convs, self.norms):
-            x_dict = conv(x_dict, edge_index_dict)
-            x_dict = {node_type: norm[node_type](x).relu() for node_type, x in x_dict.items()}
+        self.convs = nn.ModuleList([
+            HGTConv(hidden_dim, hidden_dim, metadata, heads=heads) for _ in range(num_layers)
+        ])
+        self.norms = nn.ModuleList([
+            nn.ModuleDict({nt: nn.LayerNorm(hidden_dim) for nt in node_types}) for _ in range(num_layers)
+        ])
+
+    def forward(self, x_dict: dict[str, torch.Tensor], edge_index_dict: dict[tuple[str, str, str], torch.Tensor]) -> dict[str, torch.Tensor]:
+        for conv, norm_dict in zip(self.convs, self.norms):
+            out_dict = conv(x_dict, edge_index_dict)
+            new_x_dict = {}
+            for nt, x in x_dict.items():
+                out = out_dict.get(nt)
+                if out is None:
+                    new_x_dict[nt] = x
+                    continue
+                out = self.act(out)
+                out = F.dropout(out, p=self.dropout, training=self.training)
+                h = x + out                      # Residual skip connection
+                h = norm_dict[nt](h)             # per-node-type LayerNorm
+                new_x_dict[nt] = h
+            x_dict = new_x_dict
         return x_dict
 
 
-class BilinearDecoder(nn.Module):
-    """Neural bilinear decoder: MLP([z_u, z_v, z_u⊙z_v, |z_u-z_v|, e_r])."""
+class NeuralBilinearDecoder(nn.Module):
+    """[z_u, z_v, z_u*z_v, |z_u-z_v|, e_r] -> MLP(256 -> 128 -> 1) -> sigmoid.
+
+    The training notebook's decoder returns a raw logit (it's optimized via
+    BCE-with-logits); this module folds the sigmoid into forward() instead of
+    leaving it to the caller. That's a valid, equivalent refactor -- the
+    learned nn.Linear/nn.Embedding weights loaded from the checkpoint are
+    identical either way, and every caller in this file (predict_pairwise,
+    predict_regimen_matrix) correctly treats this module's output as an
+    already-bounded (0, 1) probability and does not re-apply sigmoid.
+    """
 
     def __init__(self, hidden_dim: int, num_relations: int) -> None:
         super().__init__()
         self.rel_embed = nn.Embedding(num_relations, hidden_dim)
+        input_dim = hidden_dim * 4 + hidden_dim
+
         self.mlp = nn.Sequential(
-            nn.Linear(hidden_dim * 5, 256),
-            nn.ReLU(),
+            nn.Linear(input_dim, 256),
+            nn.LeakyReLU(0.2),
             nn.Linear(256, 128),
-            nn.ReLU(),
+            nn.LeakyReLU(0.2),
             nn.Linear(128, 1),
         )
 
     def forward(self, z_u: torch.Tensor, z_v: torch.Tensor, rel_idx: torch.Tensor) -> torch.Tensor:
         e_r = self.rel_embed(rel_idx)
-        feats = torch.cat([z_u, z_v, z_u * z_v, (z_u - z_v).abs(), e_r], dim=-1)
-        logits = self.mlp(feats).squeeze(-1)
+        feat = torch.cat([z_u, z_v, z_u * z_v, torch.abs(z_u - z_v), e_r], dim=-1)
+        logits = self.mlp(feat).squeeze(-1)
         return torch.sigmoid(logits)
 
 
 class PharmacoGNN(nn.Module):
     def __init__(
-        self,
-        num_drugs: int,
-        num_proteins: int,
-        hidden_dim: int,
-        num_layers: int,
-        heads: int,
-        metadata: Metadata,
-        num_se_relations: int,
+        self, num_drugs: int, num_proteins: int, hidden_dim: int, num_layers: int, heads: int, metadata: Metadata, num_se_relations: int, dropout: float = 0.3
     ) -> None:
         super().__init__()
         self.node_embed = NodeEmbedding(num_drugs, num_proteins, hidden_dim)
-        self.encoder = HeteroEncoder(hidden_dim, num_layers, heads, metadata)
-        self.decoder = BilinearDecoder(hidden_dim, num_se_relations)
+        self.encoder = HGTResidualEncoder(metadata, hidden_dim=hidden_dim, num_layers=num_layers, heads=heads, dropout=dropout)
+        self.decoder = NeuralBilinearDecoder(hidden_dim, num_se_relations)
 
 
 # --- Module-level inference state, populated once by initialize() -----------
@@ -120,14 +130,11 @@ Z_DRUG_CACHE_DEGRADED: bool = True
 DRUG2IDX: dict[str, int] = {}
 IDX2DRUG: dict[str, str] = {}
 CID_TO_NAME: dict[str, str] = {}
-# Index-aligned with decoder.rel_embed rows: IDX_TO_RELATION_META[i] describes relation i.
 IDX_TO_RELATION_META: list[dict[str, Any]] = []
 
 PROTEIN2IDX: dict[str, int] = {}
 IDX2PROTEIN: dict[int, str] = {}
 PROTEIN_TO_NAME: dict[str, str] = {}
-# Populated only when real graph edges were found; used by find_bridging_proteins
-# for a graph-grounded xai_pathway. None in degraded mode.
 EDGE_INDEX_DICT: dict[tuple[str, str, str], torch.Tensor] | None = None
 
 
@@ -145,6 +152,7 @@ def _build_model(weights_dir: Path, cfg: dict[str, Any], num_se_relations: int) 
         heads=cfg["heads"],
         metadata=metadata,
         num_se_relations=num_se_relations,
+        dropout=cfg.get("dropout", 0.3)
     )
 
     weights_path = weights_dir / settings.MODEL_STATE_DICT_FILENAME
@@ -155,38 +163,59 @@ def _build_model(weights_dir: Path, cfg: dict[str, Any], num_se_relations: int) 
         )
 
     state_dict = torch.load(weights_path, map_location=settings.GNN_DEVICE, weights_only=True)
-    model.load_state_dict(state_dict, strict=True)  # raises loudly on any key/shape mismatch
+    model.load_state_dict(state_dict, strict=True)
     model.to(settings.GNN_DEVICE)
     model.eval()
     return model
 
 
+def _assert_vocab_consistency(
+    model: PharmacoGNN, cfg: dict[str, Any], num_drug_ids: int, num_protein_ids: int, num_relation_ids: int
+) -> None:
+    """Catches gross artifact skew: a drug2idx.json / protein2idx.json /
+    relation_meta.json that was NOT exported in the same notebook run as the
+    currently-loaded state_dict. This cannot catch a same-COUNT reordering
+    (e.g. index 42 quietly meaning a different drug) -- there is no content
+    hash tying vocabulary order to a specific checkpoint. The real defense
+    against that is exporting everything atomically in one notebook cell
+    (see the training notebook's unified export step); this assertion is a
+    second, independent line of defense for the mismatches it CAN detect,
+    and it fails loudly rather than silently serving scrambled predictions.
+    """
+    checks = [
+        ("num_drugs", cfg["num_drugs"], num_drug_ids, model.node_embed.drug_emb.weight.shape[0]),
+        ("num_proteins", cfg["num_proteins"], num_protein_ids, model.node_embed.protein_emb.weight.shape[0]),
+        ("num_relations", cfg["num_relations"], num_relation_ids, model.decoder.rel_embed.weight.shape[0]),
+    ]
+    problems = [
+        f"{label}: model_config.json says {cfg_val}, vocab file has {file_val} entries, "
+        f"trained embedding table has {emb_val} rows"
+        for label, cfg_val, file_val, emb_val in checks
+        if not (cfg_val == file_val == emb_val)
+    ]
+    if problems:
+        raise RuntimeError(
+            "PharmacoGNN artifact mismatch -- these files were not exported together from "
+            "the same notebook run. Refusing to serve predictions that could be silently "
+            "scrambled:\n  " + "\n  ".join(problems)
+        )
+
+
 def _try_load_edge_index_dict(
     weights_dir: Path,
 ) -> tuple[dict[tuple[str, str, str], torch.Tensor], str] | tuple[None, None]:
-    """Looks for graph edges produced by the training pipeline.
-
-    Returns (edge_index_dict, filename_used), or (None, None) if nothing is
-    found -- rather than fabricating topology; callers must treat that as a
-    real, visible degraded mode, not a silent fallback.
-    """
     for filename in _GRAPH_EDGE_FILENAMES:
         path = weights_dir / filename
         if not path.exists():
             continue
         obj = torch.load(path, map_location=settings.GNN_DEVICE, weights_only=False)
-        edge_index_dict = getattr(obj, "edge_index_dict", obj)  # HeteroData, or an already-plain dict
+        edge_index_dict = getattr(obj, "edge_index_dict", obj) 
         if isinstance(edge_index_dict, dict):
             return edge_index_dict, filename
     return None, None
 
 
 def _fingerprint(path: Path) -> dict[str, str | int]:
-    """Content hash + size, NOT mtime: mtime is reset by every `git checkout`/
-    clone, so a cache computed on one machine and committed for teammates to
-    reuse (exactly how this is meant to be used) would otherwise always look
-    "stale" on a fresh checkout even when the file content is byte-identical.
-    """
     hasher = hashlib.blake2b(digest_size=16)
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
@@ -195,16 +224,30 @@ def _fingerprint(path: Path) -> dict[str, str | int]:
 
 
 def _source_fingerprint(weights_dir: Path, edge_filename: str | None) -> dict[str, Any]:
-    """Identifies exactly which inputs a cached Z_DRUG_CACHE was built from.
+    """Fingerprints state_dict + edge file + every vocabulary/config file.
 
-    Compared against the currently-present files' content hashes before
-    trusting a cached tensor, so swapping in a retrained checkpoint or a new
-    graph can never silently serve stale embeddings.
+    The vocab files matter here as much as the state_dict: two exports can
+    have byte-identical model_config.json shapes (same num_drugs/num_proteins
+    counts) while drug2idx.json's actual ID->index mapping differs between
+    them (e.g. one export re-ran the Decagon download and vocabulary build
+    in a fresh session). That kind of skew changes nothing about tensor
+    SHAPES -- load_state_dict still succeeds, nothing crashes -- but it
+    silently misaligns which row of the embedding table is "drug 42" between
+    the checkpoint and the ID mapping actually being used to serve requests.
+    Hashing the vocab files too means ANY change to them invalidates the
+    cache and forces a fresh encoder pass against whatever mapping is
+    currently on disk, rather than serving a cache computed under a
+    different (possibly now-stale) mapping.
     """
     weights_path = weights_dir / settings.MODEL_STATE_DICT_FILENAME
     fingerprint: dict[str, Any] = {
         "state_dict": _fingerprint(weights_path) if weights_path.exists() else None,
         "edge_filename": edge_filename,
+        "vocab": {
+            fname: _fingerprint(weights_dir / fname)
+            for fname in _VOCAB_FILENAMES_FOR_FINGERPRINT
+            if (weights_dir / fname).exists()
+        },
     }
     if edge_filename is not None:
         fingerprint["edge_file"] = _fingerprint(weights_dir / edge_filename)
@@ -226,7 +269,7 @@ def _load_cached_drug_cache(
     if not isinstance(cached, dict) or cached.get("fingerprint") != expected_fingerprint:
         logger.info(
             "PharmacoGNN: %s exists but its fingerprint doesn't match the current "
-            "state_dict/edge file -- source data changed, recomputing instead of "
+            "state_dict/edge/vocab files -- source data changed, recomputing instead of "
             "serving a stale cache.",
             cache_path,
         )
@@ -247,8 +290,24 @@ def _save_drug_cache(weights_dir: Path, z_drug: torch.Tensor, fingerprint: dict[
 
 @torch.no_grad()
 def _compute_drug_cache(
-    model: PharmacoGNN, weights_dir: Path, cfg: dict[str, Any]
+    model: PharmacoGNN,
+    weights_dir: Path,
+    cfg: dict[str, Any],
+    *,
+    force_recompute: bool = False,
+    skip_cache_write: bool = False,
 ) -> tuple[torch.Tensor, bool, dict[tuple[str, str, str], torch.Tensor] | None]:
+    """
+    force_recompute: if True, NEVER read Z_DRUG_CACHE.pt from disk even if its
+        fingerprint matches -- always run the HGTConv encoder fresh. Use this
+        when you want to be certain you're looking at output from the encoder
+        + the *currently loaded* state_dict, not from whatever a previous
+        process happened to leave on disk.
+    skip_cache_write: if True, don't persist the freshly-computed embeddings
+        back to Z_DRUG_CACHE.pt afterward. Combine with force_recompute=True
+        for a pure one-off "run inference with zero cache involvement at all"
+        pass that doesn't touch the cache file in either direction.
+    """
     device = settings.GNN_DEVICE
     x_dict = {
         "drug": model.node_embed.drug_emb(torch.arange(cfg["num_drugs"], device=device)),
@@ -259,36 +318,51 @@ def _compute_drug_cache(
     if edge_index_dict is None:
         logger.warning(
             "PharmacoGNN: no graph edge data found in %s (looked for %s). "
-            "Z_DRUG_CACHE is falling back to PRE-CONVOLUTION drug embeddings -- "
-            "the 3-layer HGTConv encoder is NOT being run, so predictions are "
-            "computed from embeddings that never saw the protein-interaction graph. "
-            "This is a degraded, non-production state; see gnn_engine.Z_DRUG_CACHE_DEGRADED.",
+            "Z_DRUG_CACHE is falling back to PRE-CONVOLUTION drug embeddings.",
             weights_dir,
             _GRAPH_EDGE_FILENAMES,
         )
         return x_dict["drug"].clone(), True, None
 
     fingerprint = _source_fingerprint(weights_dir, edge_filename)
-    cached_z_drug = _load_cached_drug_cache(weights_dir, fingerprint)
-    if cached_z_drug is not None:
-        return cached_z_drug, False, edge_index_dict
 
-    logger.warning(
-        "PharmacoGNN: no valid %s found -- running the 3-layer HGTConv encoder over the full "
-        "graph now. This is a one-time cost (tens of minutes on CPU for a graph this size); "
-        "the result will be cached to disk so future startups skip it. Run "
-        "`python -m app.scripts.precompute_z_drug_cache` ahead of time to avoid paying this "
-        "cost on a live server's first request.",
-        settings.Z_DRUG_CACHE_FILENAME,
-    )
+    if force_recompute:
+        logger.warning(
+            "PharmacoGNN: force_recompute=True -- ignoring any existing %s and running the "
+            "HGTConv encoder over the full graph now.",
+            settings.Z_DRUG_CACHE_FILENAME,
+        )
+    else:
+        cached_z_drug = _load_cached_drug_cache(weights_dir, fingerprint)
+        if cached_z_drug is not None:
+            return cached_z_drug, False, edge_index_dict
+        logger.warning(
+            "PharmacoGNN: no valid %s found -- running the HGTConv encoder over the full graph now.",
+            settings.Z_DRUG_CACHE_FILENAME,
+        )
+
     z_dict = model.encoder(x_dict, edge_index_dict)
     z_drug = z_dict["drug"]
-    _save_drug_cache(weights_dir, z_drug, fingerprint)
+
+    if skip_cache_write:
+        logger.info(
+            "PharmacoGNN: skip_cache_write=True -- NOT persisting this recomputed %s to disk "
+            "(this run is not affecting what future normal startups will load).",
+            settings.Z_DRUG_CACHE_FILENAME,
+        )
+    else:
+        _save_drug_cache(weights_dir, z_drug, fingerprint)
+
     return z_drug, False, edge_index_dict
 
 
-def initialize() -> None:
-    """Load artifacts + weights and populate Z_DRUG_CACHE. Call once at app startup."""
+def initialize(*, force_recompute: bool = False, skip_cache_write: bool = False) -> None:
+    """
+    force_recompute / skip_cache_write: passed straight through to
+    _compute_drug_cache -- see its docstring. Both default to False, i.e.
+    unchanged behavior from before (read the cache if valid, write a fresh
+    one if not).
+    """
     global _MODEL, _MODEL_CONFIG, Z_DRUG_CACHE, Z_DRUG_CACHE_DEGRADED
     global DRUG2IDX, IDX2DRUG, CID_TO_NAME, IDX_TO_RELATION_META
     global PROTEIN2IDX, IDX2PROTEIN, PROTEIN_TO_NAME, EDGE_INDEX_DICT
@@ -319,7 +393,14 @@ def initialize() -> None:
 
     _MODEL_CONFIG = cfg
     _MODEL = _build_model(weights_dir, cfg, num_se_relations=len(idx_to_meta))
-    Z_DRUG_CACHE, Z_DRUG_CACHE_DEGRADED, EDGE_INDEX_DICT = _compute_drug_cache(_MODEL, weights_dir, cfg)
+
+    # Fail loudly here rather than downstream as an unexplained "predictions
+    # look wrong" support ticket -- see _assert_vocab_consistency's docstring.
+    _assert_vocab_consistency(_MODEL, cfg, len(DRUG2IDX), len(PROTEIN2IDX), len(idx_to_meta))
+
+    Z_DRUG_CACHE, Z_DRUG_CACHE_DEGRADED, EDGE_INDEX_DICT = _compute_drug_cache(
+        _MODEL, weights_dir, cfg, force_recompute=force_recompute, skip_cache_write=skip_cache_write
+    )
 
     logger.info(
         "PharmacoGNN ready: %d drugs, %d relations, degraded_mode=%s",
@@ -327,6 +408,15 @@ def initialize() -> None:
         len(idx_to_meta),
         Z_DRUG_CACHE_DEGRADED,
     )
+    if Z_DRUG_CACHE_DEGRADED:
+        logger.warning(
+            "PharmacoGNN: running in DEGRADED mode -- Z_DRUG_CACHE holds raw, "
+            "pre-message-passing embeddings (no graph_edge_index.pt found). "
+            "Predictions will be materially weaker than the trained model is "
+            "actually capable of. This is not a crash-worthy condition by "
+            "design (so the API stays up), but it should not be treated as "
+            "normal in any environment serving real predictions."
+        )
 
 
 def is_ready() -> bool:
@@ -344,6 +434,47 @@ def drug_name(cid: str) -> str:
 
 def protein_name(pid: str) -> str:
     return PROTEIN_TO_NAME.get(pid, pid)
+
+
+def vocab_sample(n: int = 15) -> list[dict[str, Any]]:
+    """Debug helper: the first n (cid, idx, resolved-name) entries, exactly as
+    they currently sit in DRUG2IDX / CID_TO_NAME. Print this when a name-based
+    lookup unexpectedly finds nothing -- it tells you in one glance whether
+    CID_TO_NAME actually holds common drug names, technical/IUPAC names, or
+    just the CID echoed back because a name lookup failed at export time.
+    """
+    _require_ready()
+    return [
+        {"cid": cid, "idx": idx, "name": CID_TO_NAME.get(cid, "<MISSING FROM CID_TO_NAME>")}
+        for cid, idx in list(DRUG2IDX.items())[:n]
+    ]
+
+
+def find_drug(query: str, limit: int = 5) -> list[tuple[str, str]]:
+    """Debug/lookup helper, more forgiving than a bare substring check:
+      1. If `query` is itself a valid CID key, returns it directly.
+      2. Case-insensitive substring match against CID_TO_NAME's values.
+      3. If that finds nothing, falls back to difflib fuzzy matching so a
+         near-miss (e.g. an IUPAC/chemical name instead of the trade name)
+         still surfaces as a suggestion instead of silently returning empty.
+    Returns a list of (cid, name) pairs, most-likely match first where
+    fuzzy matching was used.
+    """
+    _require_ready()
+    if query in DRUG2IDX:
+        return [(query, CID_TO_NAME.get(query, query))]
+
+    q = query.lower()
+    substr_hits = [(cid, name) for cid, name in CID_TO_NAME.items() if q in name.lower()]
+    if substr_hits:
+        return substr_hits[:limit]
+
+    names = list(CID_TO_NAME.values())
+    close_names = difflib.get_close_matches(query, names, n=limit, cutoff=0.4)
+    name_to_cid: dict[str, str] = {}
+    for cid, name in CID_TO_NAME.items():
+        name_to_cid.setdefault(name, cid)
+    return [(name_to_cid[name], name) for name in close_names]
 
 
 def _scale_for_female_bias(score: float, female_weighted: bool, apply: bool) -> float:
@@ -387,10 +518,7 @@ def predict_pairwise(cid_a: str, cid_b: str, apply_female_bias: bool) -> list[di
 def predict_regimen_matrix(
     cids: list[str], apply_female_bias: bool
 ) -> tuple[list[list[float]], list[dict[str, Any]], float]:
-    """Vectorized C(N,2) pairwise ADR scoring across a drug cart.
-
-    Returns (symmetric NxN top-risk matrix, per-pair flag list, regimen toxicity index).
-    """
+    """Vectorized C(N,2) pairwise ADR scoring across a drug cart."""
     _require_ready()
     for cid in cids:
         if cid not in DRUG2IDX:
@@ -443,19 +571,7 @@ def predict_regimen_matrix(
 
 
 def find_bridging_proteins(cid_a: str, cid_b: str, max_shared: int = 3) -> dict[str, Any]:
-    """Real topological grounding for explain.py's xai_pathway.
-
-    Looks for either (a) a protein directly targeted by both drugs, or
-    (b) a single protein-protein-interaction hop connecting a target of
-    drug_a to a target of drug_b -- using EDGE_INDEX_DICT (the actual
-    training graph), never embedding similarity or LLM guesswork. Returns
-    {"nodes": [], "edges": [], "data_available": False} if edges weren't
-    loaded (degraded mode) or no such connection exists in the graph; that
-    is a true negative, not a fabricated one.
-
-    Node ids are namespaced ("drug:<cid>", "protein:<id>") so Cytoscape.js/
-    React Flow consumers never collide a drug and protein sharing a raw id.
-    """
+    """Real topological grounding for explain.py's xai_pathway."""
     empty: dict[str, Any] = {"nodes": [], "edges": [], "data_available": False}
     if EDGE_INDEX_DICT is None:
         return empty
@@ -490,10 +606,13 @@ def find_bridging_proteins(cid_a: str, cid_b: str, max_shared: int = 3) -> dict[
     ppi_edge = EDGE_INDEX_DICT.get(("protein", "interacts", "protein"))
     if ppi_edge is not None and proteins_a and proteins_b:
         src, dst = ppi_edge[0], ppi_edge[1]
-        a_tensor = torch.tensor(list(proteins_a))
-        b_tensor = torch.tensor(list(proteins_b))
+        # NOTE: these two tensors previously had no `device=` argument, which
+        # would raise a device-mismatch RuntimeError against `src`/`dst`
+        # (loaded onto settings.GNN_DEVICE) any time this ran on a GPU
+        # deployment. Fixed by pinning them to src's device explicitly.
+        a_tensor = torch.tensor(list(proteins_a), device=src.device)
+        b_tensor = torch.tensor(list(proteins_b), device=src.device)
 
-        # A single PPI hop in either direction: (a-target -> b-target) or (b-target -> a-target).
         mask_ab = torch.isin(src, a_tensor) & torch.isin(dst, b_tensor)
         mask_ba = torch.isin(src, b_tensor) & torch.isin(dst, a_tensor)
 
@@ -503,7 +622,7 @@ def find_bridging_proteins(cid_a: str, cid_b: str, max_shared: int = 3) -> dict[
             hit = (int(src[k]), int(dst[k]))
         elif mask_ba.any():
             k = int(mask_ba.nonzero(as_tuple=True)[0][0])
-            hit = (int(dst[k]), int(src[k]))  # normalized to (a-side, b-side)
+            hit = (int(dst[k]), int(src[k])) 
 
         if hit is not None:
             p1_idx, p2_idx = hit
