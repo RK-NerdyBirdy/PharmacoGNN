@@ -7,6 +7,11 @@ const PUBCHEM_CID_BY_MEDICINE_ID = {
   amitriptyline: 2160,
   citalopram: 2771,
 };
+// Scores returned by the live regimen endpoint.  The demo store intentionally
+// remains immutable here, so keep this render-only overlay for views such as
+// the 3D relationship map to mirror the numbers visible in the matrix.
+let liveMatrixScores = {};
+const matrixPairKey = (a, b) => [a, b].sort().join('|');
 
 // Persists {medicineId: pubchemCid} for medicines added via the real vocab
 // search, so a real CID survives a reload (PharmaStore's own ids are
@@ -118,6 +123,7 @@ function renderReviewCard(pair,value){
 }
 
 function render(){const s=PharmaStore.getState(),e=UI.escape;
+  liveMatrixScores = {};
   document.getElementById('contextBar').innerHTML='<span class="context-title">Patient Information</span><span class="pill pill-muted">Age '+s.context.age+'</span><span class="pill pill-muted">'+e(s.context.sex)+'</span><a class="btn btn-edit" href="demographic-lens.html" aria-label="Edit patient information">✎</a>';
   document.getElementById('medicineList').innerHTML=s.medicines.map((m,i)=>'<li class="medicine-item"><span class="medicine-badge">'+String.fromCharCode(65+i)+'</span><span class="medicine-info"><span class="medicine-name" title="'+e(m.name)+'">'+e(m.name)+'</span><br><span class="medicine-detail">'+e(m.dose||'Dose not entered')+'</span></span>'+(getMedicineCid(m.id)?'<button class="medicine-view3d" type="button" data-view3d="'+e(m.id)+'" data-name="'+e(m.name)+'">View 3D</button>':'')+'<button class="medicine-remove" data-remove="'+e(m.id)+'" aria-label="Remove '+e(m.name)+'">×</button></li>').join('')||'<li class="empty-state">Your regimen is empty. Add medicines to begin.</li>';
   document.getElementById('interactionMatrix').innerHTML=UI.matrix(s,true);UI.text('matrixLegendLabels',UI.key(s.medicines));
@@ -169,6 +175,7 @@ async function syncRealPredictions() {
       cell.className = `cell-${kind}`;
       const target = cell.querySelector('button, span') || cell;
       target.textContent = Math.round(score);
+      liveMatrixScores[matrixPairKey(row.m.id, col.m.id)] = Math.round(score);
     });
   });
 
@@ -250,7 +257,9 @@ window.getRegimenGraphData = function () {
     for (let j = i + 1; j < s.medicines.length; j++) {
       const a = s.medicines[i], b = s.medicines[j];
       const letterKey = [String.fromCharCode(65 + i), String.fromCharCode(65 + j)].sort().join('-');
-      matrixScores[letterKey] = getMedicineCid(a.id) && getMedicineCid(b.id) ? PharmaStore.score(a.id, b.id, s) : null;
+      matrixScores[letterKey] = getMedicineCid(a.id) && getMedicineCid(b.id)
+        ? (liveMatrixScores[matrixPairKey(a.id, b.id)] ?? PharmaStore.score(a.id, b.id, s))
+        : null;
     }
   }
   return { medicines, matrixScores, thresholds: { priority: 70, review: 30 } };

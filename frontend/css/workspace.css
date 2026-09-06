@@ -1246,7 +1246,86 @@
 }
 
 .drug-graph-legend {
-  margin-top: 14px;
+  margin: 0;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 10px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.drug-graph-guide {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 1fr);
+  gap: 18px;
+  margin-top: 16px;
+}
+
+.drug-graph-guide-section {
+  padding: 14px 16px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.drug-graph-guide h3 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.drug-graph-node-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.drug-graph-node-label {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  gap: 7px;
+  border-radius: 999px;
+  padding: 6px 10px 6px 6px;
+  background: var(--pink-pale);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.drug-graph-node-label b {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--magenta-deep);
+  color: #fff;
+}
+
+.drug-graph-node-label span {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drug-graph-edge-sample {
+  display: block;
+  width: 26px;
+  border-radius: 999px;
+}
+
+.drug-graph-edge-sample.priority { height: 8px; background: #ef377b; }
+.drug-graph-edge-sample.review { height: 5px; background: #f392b8; }
+.drug-graph-edge-sample.lower { height: 2px; background: #69bc9d; }
+.drug-graph-edge-sample.unknown { height: 1px; background: #bfb1b9; }
+
+@media (max-width: 700px) {
+  .drug-graph-stage { height: 440px; }
+  .drug-graph-guide { grid-template-columns: 1fr; }
 }
 
 /* ---------- Footer ---------- */

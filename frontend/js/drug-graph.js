@@ -17,11 +17,12 @@
   // Mirrors the color tokens used for the 2D matrix cells (css/workspace.css)
   // so the two views read as the same classification.
   const COLOR_BY_CLASS = {
-    priority: 'rgba(255, 90, 145, 0.95)',
-    review: 'rgba(255, 170, 200, 0.9)',
-    lower: 'rgba(150, 220, 180, 0.9)',
-    unknown: 'rgba(210, 200, 205, 0.6)',
+    priority: 'rgba(239, 55, 123, 1)',
+    review: 'rgba(243, 146, 184, 0.95)',
+    lower: 'rgba(105, 188, 157, 0.9)',
+    unknown: 'rgba(191, 177, 185, 0.42)',
   };
+  const WIDTH_BY_CLASS = { priority: 8, review: 4.5, lower: 1.8, unknown: 0.35 };
 
   let forceGraphLoadPromise = null;
   let activeCleanup = null;
@@ -51,7 +52,11 @@
   }
 
   function buildGraphData({ medicines, matrixScores, thresholds }) {
-    const nodes = medicines.map((m) => ({ id: m.letter, name: m.name }));
+    const nodes = medicines.map((m) => ({
+      id: m.letter,
+      name: m.name,
+      label: `${m.letter} · ${m.name}`,
+    }));
 
     const links = [];
     for (let i = 0; i < medicines.length; i++) {
@@ -65,7 +70,7 @@
           target: b,
           value: value === null || value === undefined ? 0 : value,
           cls,
-          label: `${medicines[i].name} × ${medicines[j].name}: ${value === null || value === undefined ? 'not modeled' : value + '/100'}`,
+          label: `${a} · ${medicines[i].name} × ${b} · ${medicines[j].name}: ${value === null || value === undefined ? 'not modeled' : value + '/100'}`,
         });
       }
     }
@@ -103,7 +108,16 @@
         <div class="drug-graph-stage" id="drugGraphStage">
           <div class="drug-graph-container" id="drugGraphContainer"></div>
         </div>
-        <div class="matrix-legend drug-graph-legend" id="drugGraphLegend"></div>
+        <div class="drug-graph-guide">
+          <div class="drug-graph-guide-section">
+            <h3>Drug key</h3>
+            <div class="drug-graph-node-key" id="drugGraphNodeKey"></div>
+          </div>
+          <div class="drug-graph-guide-section">
+            <h3>Connection key</h3>
+            <div class="matrix-legend drug-graph-legend" id="drugGraphLegend"></div>
+          </div>
+        </div>
       </div>
     `;
     overlay.addEventListener('click', (e) => {
@@ -115,15 +129,20 @@
     return overlay;
   }
 
-  function renderLegend(thresholds) {
+  function renderLegend(source) {
+    const { thresholds, medicines } = source;
     const legend = document.getElementById('drugGraphLegend');
     if (!legend) return;
     legend.innerHTML = `
-      <span class="legend-chip legend-priority">Priority (≥ ${thresholds.priority})</span>
-      <span class="legend-chip legend-review">Review (≥ ${thresholds.review})</span>
-      <span class="legend-chip legend-lower">Lower</span>
-      <span class="legend-chip legend-unknown">Unknown</span>
+      <span class="drug-graph-edge-sample priority"></span><span>Priority ≥ ${thresholds.priority}: bold edge</span>
+      <span class="drug-graph-edge-sample review"></span><span>Review ≥ ${thresholds.review}: medium edge</span>
+      <span class="drug-graph-edge-sample lower"></span><span>Lower score: fine edge</span>
+      <span class="drug-graph-edge-sample unknown"></span><span>Unknown: faint edge</span>
     `;
+    const nodeKey = document.getElementById('drugGraphNodeKey');
+    if (nodeKey) nodeKey.innerHTML = medicines.map((medicine) =>
+      `<span class="drug-graph-node-label"><b>${medicine.letter}</b><span title="${medicine.name}">${medicine.name}</span></span>`
+    ).join('');
   }
 
   function setStatus(text, isError) {
@@ -140,7 +159,7 @@
     }
     const source = window.getRegimenGraphData();
     buildModal();
-    renderLegend(source.thresholds);
+    renderLegend(source);
 
     try {
       await loadForceGraph();
@@ -157,16 +176,27 @@
       const graph = window.ForceGraph3D()(container)
         .graphData(data)
         .backgroundColor('rgba(0,0,0,0)') // transparent — the dot field shows through
-        .nodeLabel((n) => n.name)
-        .nodeAutoColorBy('id')
-        .nodeOpacity(0.95)
-        .nodeVal(6)
+        .nodeLabel((n) => n.label)
+        .nodeColor(() => '#f6d5e2')
+        .nodeOpacity(1)
+        .nodeVal(10)
         .linkLabel((l) => l.label)
-        .linkWidth((l) => 0.6 + (l.value / 100) * 3.5)
+        .linkWidth((l) => WIDTH_BY_CLASS[l.cls])
         .linkColor((l) => COLOR_BY_CLASS[l.cls])
-        .linkOpacity(0.9)
+        .linkOpacity((l) => l.cls === 'unknown' ? 0.28 : 0.95)
+        .linkDirectionalParticles((l) => l.cls === 'priority' ? 3 : 0)
+        .linkDirectionalParticleWidth((l) => l.cls === 'priority' ? 2.5 : 0)
+        .linkDirectionalParticleColor((l) => COLOR_BY_CLASS[l.cls])
         .width(container.clientWidth)
         .height(container.clientHeight);
+
+      graph.d3Force('charge').strength(-260);
+      graph.d3Force('link').distance((link) => link.cls === 'priority' ? 105 : 145);
+      // Wait for the force layout to spread out, then frame the actual graph
+      // rather than leaving a small cluster in the middle of the full stage.
+      window.setTimeout(() => {
+        if (document.body.contains(container)) graph.zoomToFit(300, 90);
+      }, 750);
 
       function onResize() {
         if (!document.body.contains(container)) return;
