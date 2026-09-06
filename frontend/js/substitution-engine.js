@@ -19,8 +19,8 @@ async function syncRealSubstitutes() {
   if (!candidates.length || !window.ApiClient || !ApiClient.isAuthenticated()) return;
   try {
     const result = await ApiClient.substitute({
-      drug_a_cid: String(CID_CITALOPRAM),
-      drug_b_cid: String(CID_AMITRIPTYLINE),
+      drug_a_cid: ApiClient.toModelCid(CID_CITALOPRAM),
+      drug_b_cid: ApiClient.toModelCid(CID_AMITRIPTYLINE),
     });
     result.alternatives.slice(0, candidates.length).forEach((alt, i) => {
       candidates[i].name = alt.name;

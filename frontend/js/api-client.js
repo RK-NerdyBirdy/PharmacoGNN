@@ -6,6 +6,15 @@
   const API_BASE = window.PHARMAGNN_API_BASE || 'http://localhost:8000';
   const TOKEN_KEY = 'pharmagnn_token';
 
+  // The model's vocabulary (backend/weights/drug2idx.json) keys drugs by
+  // zero-padded "CID000002160", not the plain PubChem numeric CID (2160) --
+  // gnn_engine does an exact dict lookup with no normalization, so sending
+  // the bare number 404s every time even for a drug the model genuinely
+  // knows. This is the one conversion point every caller should go through.
+  function toModelCid(pubchemCid) {
+    return 'CID' + String(pubchemCid).padStart(9, '0');
+  }
+
   function getToken() {
     try {
       return localStorage.getItem(TOKEN_KEY);
@@ -65,6 +74,7 @@
     getToken,
     isAuthenticated: () => Boolean(getToken()),
     logout: clearToken,
+    toModelCid,
 
     async register(email, password, role) {
       return request('/api/v1/auth/register', { method: 'POST', auth: false, body: { email, password, role } });

@@ -94,7 +94,7 @@ async function syncRealPredictions() {
 
   let result;
   try {
-    result = await ApiClient.predictRegimen({ drug_cids: eligible.map((x) => String(x.cid)) });
+    result = await ApiClient.predictRegimen({ drug_cids: eligible.map((x) => ApiClient.toModelCid(x.cid)) });
   } catch (err) {
     console.warn('Real regimen prediction unavailable, showing demo scores:', err.message);
     return;

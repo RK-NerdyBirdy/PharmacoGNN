@@ -25,12 +25,15 @@ async function syncRealEstimate() {
   if (!cidA || !cidB) return;
 
   try {
-    const unstratified = await ApiClient.predictPairwise({ drug_a_cid: String(cidA), drug_b_cid: String(cidB) });
+    const unstratified = await ApiClient.predictPairwise({
+      drug_a_cid: ApiClient.toModelCid(cidA),
+      drug_b_cid: ApiClient.toModelCid(cidB),
+    });
     let stratified = unstratified;
     if (context.stratify && (context.sex === 'female' || context.sex === 'male')) {
       stratified = await ApiClient.predictPairwise({
-        drug_a_cid: String(cidA),
-        drug_b_cid: String(cidB),
+        drug_a_cid: ApiClient.toModelCid(cidA),
+        drug_b_cid: ApiClient.toModelCid(cidB),
         patient_sex: context.sex.toUpperCase(),
       });
     }

@@ -225,7 +225,10 @@
     if (!cidA || !cidB) return;
 
     try {
-      const result = await ApiClient.explainInteraction({ drug_a_cid: String(cidA), drug_b_cid: String(cidB) });
+      const result = await ApiClient.explainInteraction({
+        drug_a_cid: ApiClient.toModelCid(cidA),
+        drug_b_cid: ApiClient.toModelCid(cidB),
+      });
       const ex = result.explanation;
       document.getElementById('pageHeading').textContent = `${result.drug_a_name} × ${result.drug_b_name}`;
       document.getElementById('pageSubhead').textContent = `Score ${Math.round(result.risk_score)} / 100`;
