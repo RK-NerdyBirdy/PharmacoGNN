@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import logging
@@ -289,8 +290,24 @@ def _save_drug_cache(weights_dir: Path, z_drug: torch.Tensor, fingerprint: dict[
 
 @torch.no_grad()
 def _compute_drug_cache(
-    model: PharmacoGNN, weights_dir: Path, cfg: dict[str, Any]
+    model: PharmacoGNN,
+    weights_dir: Path,
+    cfg: dict[str, Any],
+    *,
+    force_recompute: bool = False,
+    skip_cache_write: bool = False,
 ) -> tuple[torch.Tensor, bool, dict[tuple[str, str, str], torch.Tensor] | None]:
+    """
+    force_recompute: if True, NEVER read Z_DRUG_CACHE.pt from disk even if its
+        fingerprint matches -- always run the HGTConv encoder fresh. Use this
+        when you want to be certain you're looking at output from the encoder
+        + the *currently loaded* state_dict, not from whatever a previous
+        process happened to leave on disk.
+    skip_cache_write: if True, don't persist the freshly-computed embeddings
+        back to Z_DRUG_CACHE.pt afterward. Combine with force_recompute=True
+        for a pure one-off "run inference with zero cache involvement at all"
+        pass that doesn't touch the cache file in either direction.
+    """
     device = settings.GNN_DEVICE
     x_dict = {
         "drug": model.node_embed.drug_emb(torch.arange(cfg["num_drugs"], device=device)),
@@ -308,21 +325,44 @@ def _compute_drug_cache(
         return x_dict["drug"].clone(), True, None
 
     fingerprint = _source_fingerprint(weights_dir, edge_filename)
-    cached_z_drug = _load_cached_drug_cache(weights_dir, fingerprint)
-    if cached_z_drug is not None:
-        return cached_z_drug, False, edge_index_dict
 
-    logger.warning(
-        "PharmacoGNN: no valid %s found -- running the HGTConv encoder over the full graph now.",
-        settings.Z_DRUG_CACHE_FILENAME,
-    )
+    if force_recompute:
+        logger.warning(
+            "PharmacoGNN: force_recompute=True -- ignoring any existing %s and running the "
+            "HGTConv encoder over the full graph now.",
+            settings.Z_DRUG_CACHE_FILENAME,
+        )
+    else:
+        cached_z_drug = _load_cached_drug_cache(weights_dir, fingerprint)
+        if cached_z_drug is not None:
+            return cached_z_drug, False, edge_index_dict
+        logger.warning(
+            "PharmacoGNN: no valid %s found -- running the HGTConv encoder over the full graph now.",
+            settings.Z_DRUG_CACHE_FILENAME,
+        )
+
     z_dict = model.encoder(x_dict, edge_index_dict)
     z_drug = z_dict["drug"]
-    _save_drug_cache(weights_dir, z_drug, fingerprint)
+
+    if skip_cache_write:
+        logger.info(
+            "PharmacoGNN: skip_cache_write=True -- NOT persisting this recomputed %s to disk "
+            "(this run is not affecting what future normal startups will load).",
+            settings.Z_DRUG_CACHE_FILENAME,
+        )
+    else:
+        _save_drug_cache(weights_dir, z_drug, fingerprint)
+
     return z_drug, False, edge_index_dict
 
 
-def initialize() -> None:
+def initialize(*, force_recompute: bool = False, skip_cache_write: bool = False) -> None:
+    """
+    force_recompute / skip_cache_write: passed straight through to
+    _compute_drug_cache -- see its docstring. Both default to False, i.e.
+    unchanged behavior from before (read the cache if valid, write a fresh
+    one if not).
+    """
     global _MODEL, _MODEL_CONFIG, Z_DRUG_CACHE, Z_DRUG_CACHE_DEGRADED
     global DRUG2IDX, IDX2DRUG, CID_TO_NAME, IDX_TO_RELATION_META
     global PROTEIN2IDX, IDX2PROTEIN, PROTEIN_TO_NAME, EDGE_INDEX_DICT
@@ -358,7 +398,9 @@ def initialize() -> None:
     # look wrong" support ticket -- see _assert_vocab_consistency's docstring.
     _assert_vocab_consistency(_MODEL, cfg, len(DRUG2IDX), len(PROTEIN2IDX), len(idx_to_meta))
 
-    Z_DRUG_CACHE, Z_DRUG_CACHE_DEGRADED, EDGE_INDEX_DICT = _compute_drug_cache(_MODEL, weights_dir, cfg)
+    Z_DRUG_CACHE, Z_DRUG_CACHE_DEGRADED, EDGE_INDEX_DICT = _compute_drug_cache(
+        _MODEL, weights_dir, cfg, force_recompute=force_recompute, skip_cache_write=skip_cache_write
+    )
 
     logger.info(
         "PharmacoGNN ready: %d drugs, %d relations, degraded_mode=%s",
@@ -392,6 +434,47 @@ def drug_name(cid: str) -> str:
 
 def protein_name(pid: str) -> str:
     return PROTEIN_TO_NAME.get(pid, pid)
+
+
+def vocab_sample(n: int = 15) -> list[dict[str, Any]]:
+    """Debug helper: the first n (cid, idx, resolved-name) entries, exactly as
+    they currently sit in DRUG2IDX / CID_TO_NAME. Print this when a name-based
+    lookup unexpectedly finds nothing -- it tells you in one glance whether
+    CID_TO_NAME actually holds common drug names, technical/IUPAC names, or
+    just the CID echoed back because a name lookup failed at export time.
+    """
+    _require_ready()
+    return [
+        {"cid": cid, "idx": idx, "name": CID_TO_NAME.get(cid, "<MISSING FROM CID_TO_NAME>")}
+        for cid, idx in list(DRUG2IDX.items())[:n]
+    ]
+
+
+def find_drug(query: str, limit: int = 5) -> list[tuple[str, str]]:
+    """Debug/lookup helper, more forgiving than a bare substring check:
+      1. If `query` is itself a valid CID key, returns it directly.
+      2. Case-insensitive substring match against CID_TO_NAME's values.
+      3. If that finds nothing, falls back to difflib fuzzy matching so a
+         near-miss (e.g. an IUPAC/chemical name instead of the trade name)
+         still surfaces as a suggestion instead of silently returning empty.
+    Returns a list of (cid, name) pairs, most-likely match first where
+    fuzzy matching was used.
+    """
+    _require_ready()
+    if query in DRUG2IDX:
+        return [(query, CID_TO_NAME.get(query, query))]
+
+    q = query.lower()
+    substr_hits = [(cid, name) for cid, name in CID_TO_NAME.items() if q in name.lower()]
+    if substr_hits:
+        return substr_hits[:limit]
+
+    names = list(CID_TO_NAME.values())
+    close_names = difflib.get_close_matches(query, names, n=limit, cutoff=0.4)
+    name_to_cid: dict[str, str] = {}
+    for cid, name in CID_TO_NAME.items():
+        name_to_cid.setdefault(name, cid)
+    return [(name_to_cid[name], name) for name in close_names]
 
 
 def _scale_for_female_bias(score: float, female_weighted: bool, apply: bool) -> float:
