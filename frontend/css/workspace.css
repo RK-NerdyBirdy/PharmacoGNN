@@ -1469,3 +1469,108 @@ body,.workspace-body,.workspace-body *{font-family:'Fredoka',sans-serif!importan
 :root[data-theme='dark'] .workspace-body .node-detail-card .pill,:root[data-theme='dark'] .workspace-body .pill-muted{background:#5b344b!important;color:#fff!important;border-color:#97627c!important}
 :root[data-theme='dark'] .workspace-body .medicine-view3d,:root[data-theme='dark'] .workspace-body .matrix-3d-btn{font-weight:700!important}
 :root[data-theme='dark'] .workspace-body .medicine-badge{background:#4b2d46!important;color:#fff!important}
+
+/* ---------- Contain the interaction matrix as the regimen grows ---------- */
+/* Appended deliberately after the team's "Final overview layout" block above
+   (which reintroduces a fixed 60px cell / overflow:visible matrix-wrap, tuned
+   for the same 4-medicine demo state) — this still wins via !important on
+   every property that matters, so shrink-to-fit keeps working as the regimen
+   grows regardless of what else changes above it. */
+/* The "Current Pink Paper Figma" tuning above hardcodes .matrix-wrap at a
+   fixed 320px width with overflow:visible (tuned for the 4-medicine demo
+   fixture), so a wider NxN table for a bigger regimen spills out of
+   #matrixCard and overlaps the review column instead of scrolling. This
+   block is deliberately last and uses !important: the rules above are many
+   dozens of equal-specificity, append-order-dependent selectors under active
+   edit, and containment must always win regardless of what lands above it. */
+.screen-overview #matrixCard .matrix-wrap {
+  /* Must fill the card (not shrink to the table's content) — otherwise
+     there's no leftover space left for the table to be centered within. */
+  width: 100% !important;
+  max-width: 100% !important;
+  /* No scrollbar, ever — workspace.js's shrink-to-fit is now the sole
+     containment mechanism (cells shrink down to MATRIX_MIN_CELL before
+     anything could overflow), so any residual sub-pixel overshoot is
+     clipped silently instead of showing a scrollbar. */
+  overflow-x: hidden !important;
+  /* An earlier rule in the cascade above (tuned for the fixed 4-medicine
+     demo state) still applies transform:translateX(-78px) here, which
+     shifted the grid's left edge out past its own card and into the
+     medicines panel once the grid was no longer artificially narrow. */
+  transform: none !important;
+  margin-left: 0 !important;
+}
+/* Width and centering margins for .interaction-matrix are set inline by
+   workspace.js's applyMatrixScale — margin:auto here didn't reliably
+   resolve to centering against this <table> (computed to 0/0 regardless of
+   a definite width being set, an engine quirk with auto-margin resolution
+   on table boxes), so explicit computed pixel margins are used instead. */
+.screen-overview #matrixCard,
+.screen-overview .workspace-grid > * {
+  min-width: 0;
+}
+
+/* Shrink matrix cells as the medicine count grows, via --matrix-cell-size /
+   --matrix-font-size set in workspace.js's render(), so more of the grid
+   fits before horizontal scrolling is needed. */
+.screen-overview #matrixCard .interaction-matrix tbody td {
+  height: var(--matrix-cell-size, 78px) !important;
+  /* Both needed: a plain .interaction-matrix td{width:52px} rule elsewhere
+     still applies otherwise, and an explicit width always wins over a
+     smaller min-width rather than being floored by it. */
+  width: var(--matrix-cell-size, 78px) !important;
+  min-width: var(--matrix-cell-size, 78px) !important;
+}
+.screen-overview #matrixCard .interaction-matrix td button,
+.screen-overview #matrixCard .interaction-matrix td > span {
+  font-size: var(--matrix-font-size, 16px) !important;
+}
+
+/* ---------- Auth (login/register) ---------- */
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+}
+.auth-brand {
+  margin-bottom: 24px;
+}
+.auth-title {
+  font-family: 'Fraunces', 'Fredoka', serif;
+  font-size: 26px;
+  margin: 0 0 4px;
+  color: var(--ink);
+}
+.auth-subtitle {
+  color: var(--ink-soft);
+  font-size: 13px;
+  margin: 0 0 20px;
+}
+.auth-error {
+  color: var(--magenta-deep, #b52360);
+  font-size: 12.5px;
+  min-height: 1em;
+  margin: 10px 0 0;
+}
+.auth-submit {
+  margin-top: 16px;
+}
+.auth-switch {
+  text-align: center;
+  margin: 18px 0 0;
+}
+.auth-switch button {
+  background: none;
+  border: none;
+  color: var(--pink-tag-text, #b52360);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}

@@ -46,7 +46,7 @@ class Settings(BaseSettings):
 
     # Calibrated loss weight for curated female-biased ADRs (relation_meta.json's
     # `female_weighted` flag), and the ceiling a scaled score is clamped to.
-    FEMALE_ADR_RISK_MULTIPLIER: float = 3.0
+    FEMALE_ADR_RISK_MULTIPLIER: float = 1.15
     RISK_SCORE_CLAMP: float = 99.9
 
     # Phase 2's predict/regimen endpoint flags a pair as "high risk" above this.
@@ -78,9 +78,8 @@ class Settings(BaseSettings):
     # --- CORS ---
     # Comma-separated allow-list (not a JSON list) so a plain .env/docker-compose
     # env var is easy to edit: CORS_ORIGINS=http://localhost:3000,http://localhost:5173
-    # Includes the frontend's actual local dev port (live-server, see
-    # frontend/package.json) alongside the originally planned one.
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8420,http://127.0.0.1:8420"
+    # Defaults to the frontend's planned local dev port.
+    CORS_ORIGINS: str = "http://localhost:3000"
 
     # --- Rate limiting ---
     # In-memory (per-process) limiter -- fine for a single instance; a

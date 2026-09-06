@@ -1,5 +1,5 @@
-# Force binary handling (no CRLF/LF normalization) for model artifacts.
-# Git's binary auto-detection can miss some .pt/.pth files, which on Windows
-# leads to silent corruption via CRLF conversion on checkout.
-*.pt binary
-*.pth binary
+# Model artifacts are tracked via Git LFS -- the `-text` here (like the
+# earlier plain `binary` marking it replaces) already prevents the CRLF/LF
+# normalization that silently corrupted these files on Windows before.
+*.pt filter=lfs diff=lfs merge=lfs -text
+*.pth filter=lfs diff=lfs merge=lfs -text

@@ -15,7 +15,7 @@ const UI = {
 };
 function renderWorkspaceShell(active){
   window.PharmaPreferences?.apply(document);
-  const routes=[['▦','Regimen overview','workspace','nav.regimen'],['◎','Demographic lens','demographic-lens','nav.demographic'],['⌘','Pathway inspector','pathway-inspector','nav.pathway'],['⇄','Substitution engine','substitution-engine','nav.substitution'],['☰','Review & export','regimen-simulation','nav.review']];
+  const routes=[['▦','Regimen overview','workspace','nav.regimen'],['◎','Demographic lens','demographic-lens','nav.demographic'],['⌘','Pathway inspector','pathway-inspector','nav.pathway'],['⇄','Substitution engine','substitution-engine','nav.substitution'],['☰','Review & export','regimen-simulation','nav.review'],['◫','Patients','patients','Patients'],['▤','Reports','reports','Reports'],['⇆','Care transfers','transfers','Care transfers']];
   document.getElementById('sidebarNav').innerHTML=routes.map(([icon,label,page,key])=>'<a class="sidebar-nav-item '+(active===label?'active':'')+'" '+(active===label?'aria-current="page"':'')+' href="'+page+'.html"><span aria-hidden="true" class="sidebar-nav-icon">'+icon+'</span>'+UI.t(key)+'</a>').join('');
   const user=PharmaStore.getUser();UI.text('userAvatar',user.initials);document.getElementById('userAvatar').title=user.name+' · '+user.role;
   document.querySelector('.workspace-topbar').insertAdjacentHTML('afterbegin','<a class="case-breadcrumb" href="workspace.html">'+UI.t('shell.workspace')+'</a><span class="pill pill-muted">'+UI.t('shell.synthetic')+'</span>');
@@ -27,6 +27,6 @@ function renderWorkspaceShell(active){
   document.getElementById('resetDemo').onclick=()=>{UI.modal(UI.t('shell.resetTitle'),'<p>'+UI.t('shell.resetBody')+'</p><button class="btn btn-primary" id="confirmReset">'+UI.t('shell.confirmReset')+'</button>');document.getElementById('confirmReset').onclick=()=>{PharmaStore.reset();UI.go('workspace');};};
   const quick=document.createElement('a');quick.className='quick-add btn btn-secondary';quick.href='workspace.html#add-medicine';quick.textContent=UI.t('shell.addMedicine');
   const settings=document.createElement('a');settings.className='settings-link';settings.href='settings.html';settings.textContent='⚙ '+UI.t('nav.settings');settings.setAttribute('aria-label',UI.t('nav.settings'));
-  const topbar=document.querySelector('.workspace-topbar .topbar-right');topbar.prepend(settings);if(active!=='Regimen overview')topbar.prepend(quick);
+  const logout=document.createElement('button');logout.className='settings-link';logout.type='button';logout.textContent='Log out';logout.onclick=()=>LogoutFlow.logout(ApiClient,location);const topbar=document.querySelector('.workspace-topbar .topbar-right');topbar.prepend(logout,settings);if(active!=='Regimen overview')topbar.prepend(quick);
   window.PharmaPreferences?.translateDocument(document);
 }
