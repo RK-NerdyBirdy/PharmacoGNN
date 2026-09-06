@@ -113,6 +113,18 @@ class Settings(BaseSettings):
     # indefinitely.
     INVITE_TOKEN_TTL_HOURS: int = 72
 
+    # --- Phase D: interaction reports ---
+    # A report's analysis (payload JSONB) lives durably in Postgres; the
+    # rendered PDF is written here, to local disk, and is NOT expected to
+    # survive a container restart/redeploy. api/v1/reports.py treats a
+    # missing-on-disk PDF as routine and regenerates it on demand from the
+    # durable payload rather than treating it as an error.
+    REPORTS_DIR: Path = BACKEND_DIR / "report_files"
+    # Explaining every high-risk pair costs one LLM call each; this bounds
+    # worst-case generation time/cost for a patient with an unusually large
+    # regimen and many flagged pairs.
+    REPORT_MAX_EXPLANATIONS: int = 10
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]

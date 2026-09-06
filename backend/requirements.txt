@@ -25,6 +25,12 @@ torch-geometric>=2.5
 # --- Phase 3: LLM explainability (OpenRouter) ---
 httpx>=0.27
 
+# --- Phase D: interaction reports (PDF rendering) ---
+# Pure-Python, no system-library dependency (unlike weasyprint's Pango/Cairo
+# requirement) -- matters here since report generation runs in the same
+# container as everything else, with no separate rendering sidecar.
+reportlab>=4.0
+
 # --- Testing ---
 # Tests use FastAPI's synchronous TestClient throughout (it bridges to async
 # endpoints internally), so no pytest-asyncio/async test functions needed.

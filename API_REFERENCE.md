@@ -598,6 +598,81 @@ LLM-generated structured explanation for one specific adverse effect of a drug p
 
 ---
 
+## Interaction reports (`/api/v1/patients/{id}/reports`, `/api/v1/reports`)
+
+🟢 **New.** A report is a **frozen snapshot**: the full interaction analysis of a patient's **active** regimen (`end_date IS NULL`) at the moment it was generated. Later regimen changes never alter an existing report. RBAC follows the same assignment-scoped rule as everything else under `/patients` — `CLINICIAN` generates/deletes, both `CLINICIAN` (assigned) and `PATIENT` (self) can read.
+
+### `POST /api/v1/patients/{patient_id}/reports`
+
+`CLINICIAN` only. Kicks off generation **asynchronously** — this can involve several LLM calls (one per high-risk pair, up to `REPORT_MAX_EXPLANATIONS`, currently 10), so it doesn't block the request.
+
+**Response `202`:**
+```json
+{ "id": "...", "status": "pending" }
+```
+Poll `GET /api/v1/reports/{id}` until `status` is no longer `"pending"`. Poll every 2-3s with backoff; time out around 2 minutes and offer a retry.
+
+**Errors:** `422` if fewer than two of the patient's active medications exist (nothing to analyze).
+
+### `GET /api/v1/patients/{patient_id}/reports`
+
+List (paginated, `limit`/`offset` as elsewhere), newest first. Excludes soft-deleted reports. Each entry:
+```json
+{ "id": "...", "status": "complete", "created_at": "...", "generated_by": "...",
+  "summary": { "drug_count": 2, "high_risk_pair_count": 1, "regimen_toxicity_index": 61.4 },
+  "file_available": true }
+```
+`summary` is `null` while `status` is `"pending"` or `"failed"`.
+
+### `GET /api/v1/reports/{report_id}`
+
+**Not** nested under `patient_id` — the report is looked up by its own id, and RBAC is enforced from the report's stored `patient_id` (same 404-not-403 rule applies).
+
+**Response `200`:**
+```json
+{
+  "id": "...", "patient_id": "...", "status": "complete",
+  "created_at": "...", "generated_by": "...",
+  "disclaimer": "Not to be taken without clinical supervision.",
+  "model_status": { "degraded_mode": true, "verified": false,
+                    "warning": "This model's absolute risk scores have not been clinically validated..." },
+  "regimen_snapshot": [ { "pubchem_cid": "CID000000085", "drug_name": "...", "dosage": "10mg" } ],
+  "unresolved_drugs": [],
+  "summary": { "drug_count": 2, "high_risk_pair_count": 1, "regimen_toxicity_index": 61.4 },
+  "interaction_matrix": [[0.0, 61.4], [61.4, 0.0]],
+  "pairwise": [ { "drug_a_cid": "...", "drug_b_cid": "...", "top_risk_score": 61.4,
+                  "top_adverse_effect": "thrombocytopenia", "is_high_risk": false,
+                  "female_weighted": true, "adverse_effects": [ /* full 50, same shape as /predict/pairwise */ ] } ],
+  "substitutions": [ { "for_drug_cid": "...", "alternatives": [ /* same shape as /predict/substitute */ ] } ],
+  "explanations": [ { "drug_a_cid": "...", "drug_b_cid": "...", "clinical_mechanism": "...",
+                       "severity_classification": "Moderate", "patient_summary": "...",
+                       "actionable_guidance": "...", "xai_pathway": { "nodes": [], "edges": [], "data_available": false } } ],
+  "file_available": true,
+  "error_message": null
+}
+```
+
+**Mandatory rendering:** `disclaimer` and `model_status.warning` — prominent, always visible, never behind a disclosure toggle, both in the UI and on the PDF (the PDF renders them the same way, as a colored banner at the top).
+
+Notes on specific fields:
+- `unresolved_drugs` is populated only in the rare case a regimen drug is no longer in the model's vocabulary (e.g. the model was swapped after the drug was added) — regimen writes are already validated at write time (see prescriptions/regimens above), so this is a defensive re-check, not the normal path.
+- `pairwise`/`substitutions`/`explanations` only cover **active, resolvable** drugs — anything in `unresolved_drugs` is excluded from the analysis, not silently scored anyway.
+- `substitutions` and `explanations` are only computed for pairs where `is_high_risk` is `true` (same `HIGH_RISK_THRESHOLD` as `/predict/substitute`). A report with no high-risk pairs has both as `[]` — that's a good outcome, not a missing-data bug.
+- If `OPENROUTER_API_KEY` isn't configured, `explanations` is `[]` for every report (the LLM call fails per-pair, is caught, logged, and skipped) — the rest of the report (GNN analysis, substitutions) is unaffected. This is expected in any environment without an OpenRouter key set.
+- `status: "failed"` reports have `error_message` set and empty analysis fields — this happens if fewer than two of the snapshotted drugs turn out resolvable, or the GNN scoring itself throws.
+
+### `GET /api/v1/reports/{report_id}/pdf`
+
+Streams the rendered PDF (`Content-Type: application/pdf`). **Errors:** `409` if the report isn't `"complete"` yet; `404` if not found/not accessible/deleted.
+
+**Report files are stored on ephemeral disk.** The analysis (`payload`) is durable in Postgres; the PDF file is written to local disk and is **not** expected to survive a container restart/redeploy. Unlike the originally-planned contract, this endpoint **self-heals**: if the file is missing on disk, it's transparently re-rendered from the durable `payload` (no GNN/LLM calls needed, so it's cheap) and served — it does not 404. `file_available` in the JSON response is still a fast, honest hint for whether a fetch will be instant or take an extra beat; treat a `false` value as "will still work, might be slightly slower," not as "broken."
+
+### `DELETE /api/v1/reports/{report_id}`
+
+`CLINICIAN` only. **Soft delete** — the row (and its audit trail) is kept with `deleted_at` set; it disappears from list/get/pdf (all 404 afterward) and any future QR access is revoked. The PDF file, if present, is removed from disk immediately.
+
+---
+
 ## Vocabulary / search (`/api/v1/vocab`)
 
 For autocomplete/search UI. Auth required (any role), but not RBAC-scoped — this is non-PHI reference data, not a specific patient's information.

@@ -2,7 +2,7 @@
 
 Written for the frontend team building against the PharmacoGNN backend. Covers every user flow, the endpoints behind it, and the states the UI has to handle.
 
-> **Read this first — build status.** Auth, patient management, the interaction workbench, and prescription/regimen management are live; reports, QR and transfers are not built yet. Every section is tagged:
+> **Read this first — build status.** Auth, patient management, the interaction workbench, prescription/regimen management, and reports are live; QR and transfers are not built yet. Every section is tagged:
 >
 > - 🟢 **LIVE** — built, tested, callable today
 > - 🟡 **CHANGING** — exists today but its behavior/permissions are about to change; don't build against current behavior
@@ -250,9 +250,9 @@ All accept optional `patient_id` (loads that patient's sex, RBAC-checked + audit
 
 ---
 
-## 8. Flow — Reports 🔴
+## 8. Flow — Reports 🟢
 
-A report is a snapshot: full interaction analysis of a patient's regimen **at generation time**, frozen. Later regimen changes don't alter an existing report.
+A report is a snapshot: full interaction analysis of a patient's **active** regimen (`end_date IS NULL` at generation time) — frozen. Later regimen changes don't alter an existing report. Requires at least two active, resolvable medications (`422` otherwise).
 
 ### Generate (async)
 
@@ -299,22 +299,24 @@ Generation runs several LLM calls, so it's slow (seconds to a minute+). **Poll e
 
 `severity_classification` is one of `Contraindicated | Major | Moderate | Minor` — safe to colour-code.
 
+`substitutions` and `explanations` only cover pairs where `is_high_risk` is `true` — a report with no high-risk pairs has both as `[]`, which is a good outcome, not missing data. If the backend's `OPENROUTER_API_KEY` isn't configured in a given environment, `explanations` will always be `[]` there (each pair's LLM call fails, is caught, and is skipped — the rest of the report is unaffected); don't treat an empty `explanations` array as a bug on its own.
+
 ### Other report endpoints
 
 | Endpoint | Notes |
 |---|---|
 | `GET /api/v1/patients/{id}/reports` | List (paginated) — build a report history view |
 | `GET /api/v1/reports/{id}/pdf` | PDF download |
-| `GET /api/v1/reports/{id}/qr` | PNG QR image (§9) |
+| `GET /api/v1/reports/{id}/qr` | PNG QR image (§9, still planned) |
 | `DELETE /api/v1/reports/{id}` | Soft-delete; revokes QR access too |
 
-### ⚠️ Report files are stored on ephemeral disk
+### Report files are stored on ephemeral disk — but this is handled for you
 
-Report **metadata lives in the database (durable)**, but the **PDF lives on container disk, which is wiped on restart/redeploy.** So this is a normal, expected state:
+Report **metadata (the whole JSON body above) lives in the database (durable)**, but the **PDF lives on container disk, which is wiped on restart/redeploy.**
 
-> report exists in the list → `file_available: false` → PDF download 404s
+Unlike the originally-planned contract, `GET /api/v1/reports/{id}/pdf` now **self-heals**: if the file is missing on disk, the backend transparently re-renders it from the durable analysis (no GNN/LLM calls needed, so it's cheap) and serves it — it does **not** 404. You can just always point a download link/button at this endpoint.
 
-Check `file_available` before showing a download button. When `false`, show **"Regenerate PDF"** instead of a broken link. This will happen routinely; treat it as a first-class state, not an error case.
+`file_available` in the report/list payload is still worth showing (e.g. as a subtle "cached"/"will regenerate" hint or to decide whether to show a spinner), but you no longer need special-case "Regenerate PDF" UI or to treat `file_available: false` as a broken-link state — the same link works either way, just possibly a beat slower.
 
 ---
 
@@ -434,9 +436,9 @@ Powers a "who can see my record" view for patients and a care-team view for clin
 
 ## 14. What to build now vs. mock
 
-**Buildable against live endpoints today:** login/refresh/session, drug autocomplete, the entire interaction workbench (pairwise / regimen matrix / substitution / explanation), health-and-degraded-banner, **the clinician patient roster, patient detail (profile/conditions/regimens), patient self-edit, the who-has-access view, prescription import, and manual regimen add/discontinue/delete**.
+**Buildable against live endpoints today:** login/refresh/session, drug autocomplete, the entire interaction workbench (pairwise / regimen matrix / substitution / explanation), health-and-degraded-banner, **the clinician patient roster, patient detail (profile/conditions/regimens), patient self-edit, the who-has-access view, prescription import, manual regimen add/discontinue/delete, and reports (generate/list/get/pdf/delete)**.
 
-**Mock against this contract:** reports, QR, transfers.
+**Mock against this contract:** QR, transfers.
 
 > **Assignment is now enforced.** A clinician only sees patients they created (or were assigned). During development, create your test patients with the same clinician account you're logged in as, or you'll get `404`s that look like bugs.
 
