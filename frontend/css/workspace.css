@@ -1543,6 +1543,11 @@ body,.workspace-body,.workspace-body *{font-family:'Fredoka',sans-serif!importan
   width: 100%;
   max-width: 420px;
 }
+.auth-card .field-box {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
 .auth-brand {
   margin-bottom: 24px;
 }
