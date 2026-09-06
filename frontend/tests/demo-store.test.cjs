@@ -9,3 +9,41 @@ test('demographic fixtures only cover supported cohorts and pairs',()=>{const s=
 test('invalid persistence and unavailable storage are recoverable',()=>{assert.equal(createStore({getItem:()=>'{',setItem:()=>{}}).getState().medicines.length,4);assert.equal(createStore({getItem:()=>'{"version":1,"medicines":[]}',setItem:()=>{}}).getState().medicines.length,4);const s=createStore({getItem:()=>{throw Error('blocked')},setItem:()=>{throw Error('blocked')}});assert.doesNotThrow(()=>s.addMedicine('Example'));assert.throws(()=>s.updateContext({age:-1,sex:'female',stratify:true}),/age/i)});
 
 test('simulation survives page navigation by rebuilding from a trusted candidate fixture',()=>{const mem=memory(),s=createStore(mem);s.simulate('candidate-b');const restored=createStore(mem).getState();assert.equal(restored.simulation.candidate.id,'candidate-b');assert.equal(restored.simulation.proposed.scores['candidate-b|citalopram'],45)});
+
+// setPendingSubstitution() is the real-data counterpart to simulate() above,
+// used for a real /predict/substitute candidate against any two regimen
+// drugs (not just the amitriptyline/citalopram fixture). It records the
+// candidate as-is rather than computing scores itself -- regimen-simulation.js
+// fetches real /predict/regimen scores separately -- so these tests cover
+// recording, validation, persistence and non-interference with the demo
+// score map, not score computation.
+test('setPendingSubstitution records a real candidate and survives page navigation',()=>{
+  const mem=memory(),s=createStore(mem);
+  const candidate={cid:'CID000001046',name:'Pyrazinamide',score:38,similarity:0.38};
+  s.setPendingSubstitution(candidate,'amitriptyline','citalopram');
+  const live=s.getState().simulation;
+  assert.equal(live.isReal,true);
+  assert.deepEqual(live.candidate,candidate);
+  assert.equal(live.replacedMedicineId,'amitriptyline');
+  assert.equal(live.fixedMedicineId,'citalopram');
+  const restored=createStore(mem).getState().simulation;
+  assert.equal(restored.isReal,true);
+  assert.equal(restored.candidate.name,'Pyrazinamide');
+  assert.equal(restored.replacedMedicineId,'amitriptyline');
+});
+test('setPendingSubstitution rejects a medicine no longer in the regimen',()=>{
+  const s=createStore(memory());
+  assert.throws(()=>s.setPendingSubstitution({cid:'CID1',name:'X',score:1,similarity:0},'not-a-real-id','citalopram'),/no longer in the regimen/);
+});
+test('mutating the regimen clears a pending real substitution',()=>{
+  const s=createStore(memory());
+  s.setPendingSubstitution({cid:'CID1',name:'X',score:1,similarity:0},'amitriptyline','citalopram');
+  s.removeMedicine('medicine-d');
+  assert.equal(s.getState().simulation,null);
+});
+test('a pending real substitution for two regimen drugs leaves the demo score map untouched (no fabricated score)',()=>{
+  const s=createStore(memory());
+  s.setPendingSubstitution({cid:'CID000001046',name:'Pyrazinamide',score:38,similarity:0.38},'amitriptyline','citalopram');
+  assert.equal(s.score('amitriptyline','citalopram'),82);
+  assert.equal(s.score('amitriptyline','medicine-c'),34);
+});
