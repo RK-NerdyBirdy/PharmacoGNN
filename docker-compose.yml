@@ -17,8 +17,21 @@ services:
       OPENROUTER_MODEL: ${OPENROUTER_MODEL:-anthropic/claude-3.5-sonnet}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      # Where invite links point -- the FRONTEND origin, not this API's.
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-smtp}
+      # "mailhog" is the in-network service name below, not localhost: from
+      # inside this container, localhost is the container itself.
+      SMTP_HOST: ${SMTP_HOST:-mailhog}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_START_TLS: ${SMTP_START_TLS:-false}
+      EMAIL_FROM: ${EMAIL_FROM:-no-reply@pharmacognn.local}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      - mailhog
     volumes:
       # Bind-mounted (not just baked into the image) so a new/updated
       # pharmacognn_deep_state_dict.pth, graph edge file, or z_drug_cache.pt
@@ -31,4 +44,17 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    restart: unless-stopped
+
+  # Dev mail catcher: accepts everything, delivers nothing, shows it all at
+  # http://localhost:8025. Invite links and (later) consent codes are read
+  # from there instead of real inboxes.
+  #
+  # MailHog is unmaintained upstream; axllent/mailpit is a drop-in replacement
+  # on the same ports if this image ever becomes a problem.
+  mailhog:
+    image: mailhog/mailhog:latest
+    ports:
+      - "${MAILHOG_SMTP_PORT:-1025}:1025"
+      - "${MAILHOG_UI_PORT:-8025}:8025"
     restart: unless-stopped

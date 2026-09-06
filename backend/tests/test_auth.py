@@ -32,7 +32,7 @@ def test_register_duplicate_email_conflicts(client):
 
 def test_login_wrong_password(client):
     email = unique_email("wrongpw")
-    client.post("/api/v1/auth/register", json={"email": email, "password": TEST_PASSWORD, "role": "PATIENT"})
+    client.post("/api/v1/auth/register", json={"email": email, "password": TEST_PASSWORD, "role": "CLINICIAN"})
     r = client.post("/api/v1/auth/login", json={"email": email, "password": "not-the-password"})
     assert r.status_code == 401
 
@@ -45,7 +45,7 @@ def test_login_unknown_email(client):
 def test_register_rejects_short_password(client):
     r = client.post(
         "/api/v1/auth/register",
-        json={"email": unique_email("shortpw"), "password": "short", "role": "PATIENT"},
+        json={"email": unique_email("shortpw"), "password": "short", "role": "CLINICIAN"},
     )
     assert r.status_code == 422
 

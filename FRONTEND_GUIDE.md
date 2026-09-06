@@ -2,7 +2,7 @@
 
 Written for the frontend team building against the PharmacoGNN backend. Covers every user flow, the endpoints behind it, and the states the UI has to handle.
 
-> **Read this first — build status.** Roughly half the endpoints described here **do not exist yet**. Every section is tagged:
+> **Read this first — build status.** Auth, patient management and the interaction workbench are live; prescriptions, reports, QR and transfers are not built yet. Every section is tagged:
 >
 > - 🟢 **LIVE** — built, tested, callable today
 > - 🟡 **CHANGING** — exists today but its behavior/permissions are about to change; don't build against current behavior
@@ -69,7 +69,7 @@ Rate limits: 60/min globally, 20/min on login/register, and (planned) stricter o
 
 ---
 
-## 3. Flow — Clinician onboards a patient 🔴
+## 3. Flow — Clinician onboards a patient 🟢
 
 The only way a patient account comes into existence. There is **no patient self-signup.**
 
@@ -88,7 +88,7 @@ Returns the created profile plus:
 ```json
 { "id": "...", "user_id": "...", "legal_name": "...",
   "activation_status": "pending",
-  "invite_email_status": "sent" | "queued" | "failed" }
+  "invite_email_status": "sent" | "failed" }
 ```
 
 **UI requirements:**
@@ -96,7 +96,7 @@ Returns the created profile plus:
 - `409` if that email already has an account.
 - Show `activation_status` in the patient list so clinicians can see who hasn't onboarded yet.
 
-**`POST /api/v1/patients/{id}/invite/resend`** 🔴 — regenerates the token, invalidates the old one, re-sends.
+**`POST /api/v1/patients/{id}/invite/resend`** 🟢 — regenerates the token, invalidates the old one, re-sends. `409` if the account is already activated.
 
 ### Why no password is emailed
 
@@ -104,7 +104,7 @@ We deliberately never send a password. The invite link lets the patient set thei
 
 ---
 
-## 4. Flow — Patient activates their account 🔴
+## 4. Flow — Patient activates their account 🟢
 
 The invite email contains a link to **your** frontend: `{FRONTEND_BASE_URL}/activate?token=<token>`
 
@@ -131,27 +131,28 @@ Password rules: 8–128 chars (server-enforced, `422` on violation). Mirror clie
 
 ---
 
-## 5. Flow — Patient views (and lightly edits) their record 🟡
+## 5. Flow — Patient views (and lightly edits) their record 🟢
 
 Patient-facing screens are **read-only for anything medical.**
 
 | Endpoint | Status | Notes |
 |---|---|---|
 | `GET /api/v1/patients/me` | 🟢 | Their profile |
-| `PATCH /api/v1/patients/me` | 🔴 | **New** — limited self-edit |
-| `GET /api/v1/patients/{id}/conditions` | 🟡 | Read-only for patient |
-| `GET /api/v1/patients/{id}/regimens` | 🟡 | Read-only for patient |
+| `PATCH /api/v1/patients/me` | 🟢 | Limited self-edit |
+| `GET /api/v1/patients/{id}/conditions` | 🟢 | Read-only for patient |
+| `GET /api/v1/patients/{id}/regimens` | 🟢 | Read-only for patient |
 
-**`POST /api/v1/patients/me` is being REMOVED** 🟡 — patients no longer create their own profile. Don't build against it.
+**`POST /api/v1/patients/me` is GONE** 🟢 — removed; patients no longer create their own profile. Calling it returns `404`/`405`.
 
 ### What a patient may edit
 
-**Allowed:** `legal_name`, `age`, `emergency_contact`, `email`
+**Allowed now (🟢):** `legal_name`, `age`, `emergency_contact`
+**Allowed, not built yet (🔴):** `email` — see the two-step flow below
 **Clinician-only:** `date_of_birth`, `medical_record_number`, `biological_sex`, and everything clinical
 
-Sending a clinician-only field to `PATCH /patients/me` returns `403` naming the rejected field. Just don't render those as editable.
+Sending a clinician-only field to `PATCH /patients/me` returns **`422`** (the field is rejected outright, not silently dropped — so a "saved!" toast never fires on an edit that didn't happen). Just don't render those as editable.
 
-### Email change is a two-step flow
+### Email change is a two-step flow 🔴
 
 Changing email changes both login identity *and* where consent OTPs are delivered, so it can't take effect immediately:
 
@@ -384,9 +385,9 @@ Per the agreed design: **B does not have to accept**, and **A does not lose acce
 
 **Patient visibility is essential** — a pending consent request must be surfaceable (banner/notification), not buried. It's a request to give another person access to their medical record.
 
-### Who has access 🔴
+### Who has access 🟢
 
-**`GET /api/v1/patients/{id}/access`** → current assignments:
+**`GET /api/v1/patients/{id}/access`** → current assignments (this endpoint is live now; the *transfer* flow that produces multiple entries is not):
 ```json
 [ { "clinician": {"id":"...","email":"..."}, "is_primary": true,
     "assigned_at": "...", "expires_at": null } ]
@@ -395,15 +396,17 @@ Powers a "who can see my record" view for patients and a care-team view for clin
 
 ---
 
-## 11. Clinician patient list 🔴
+## 11. Clinician patient list 🟢
 
-**`GET /api/v1/patients?limit=&offset=`** — the assigned-patient list. This is new and only became possible with the assignment model (previously there was no way to list patients, since encrypted name/MRN fields can't be searched at the database level).
+**`GET /api/v1/patients?limit=&offset=`** — the assigned-patient list. Only became possible with the assignment model (previously there was no way to list patients at all).
 
 ```json
-[ { "id": "...", "legal_name": "Jane Doe", "age": 36,
-    "biological_sex": "FEMALE", "activation_status": "active",
-    "active_regimen_count": 4, "last_report_at": "..." } ]
+[ { "id": "...", "user_id": "...", "legal_name": "Jane Doe", "age": 36,
+    "biological_sex": "FEMALE", "is_primary": true,
+    "assigned_at": "2026-09-06T...", "active_regimen_count": 4 } ]
 ```
+
+`activation_status` is live (`"pending"` until the patient sets a password, then `"active"`). `last_report_at` arrives with the reports feature — absent today rather than stubbed.
 
 **Search caveat:** `legal_name` and `medical_record_number` are encrypted at rest and **cannot be filtered server-side**. Client-side filtering of the fetched page is fine; a global "search all patients by name" is not possible without a backend change (blind-index). Design around it.
 
@@ -431,9 +434,11 @@ Powers a "who can see my record" view for patients and a care-team view for clin
 
 ## 14. What to build now vs. mock
 
-**Buildable against live endpoints today:** login/refresh/session, drug autocomplete, the entire interaction workbench (pairwise / regimen matrix / substitution / explanation), health-and-degraded-banner.
+**Buildable against live endpoints today:** login/refresh/session, drug autocomplete, the entire interaction workbench (pairwise / regimen matrix / substitution / explanation), health-and-degraded-banner, **the clinician patient roster, patient detail (profile/conditions/regimens), patient self-edit, and the who-has-access view**.
 
-**Mock against this contract:** patient onboarding + activation, patient list, prescription import, reports, QR, transfers.
+**Mock against this contract:** prescription import, reports, QR, transfers.
+
+> **Assignment is now enforced.** A clinician only sees patients they created (or were assigned). During development, create your test patients with the same clinician account you're logged in as, or you'll get `404`s that look like bugs.
 
 Starting with the interaction workbench gets you real data immediately and is the most complex UI surface — the rest is comparatively conventional CRUD once the contract lands.
 

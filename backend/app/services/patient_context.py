@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import HTTPException, Request, status
-from sqlalchemy import select
+from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.http import client_ip
 from app.models.audit import AuditActionType, AuditLog
-from app.models.patient import BiologicalSex, PatientProfile
-from app.models.user import User, UserRole
+from app.models.patient import BiologicalSex
+from app.models.user import User
+from app.services.patient_access import load_accessible_patient
 
 
 async def resolve_apply_female_bias(
@@ -21,10 +21,14 @@ async def resolve_apply_female_bias(
 ) -> bool:
     """Decide whether to apply the female-ADR risk multiplier, and audit any real PHI access.
 
-    Shared by predict.py and explain.py. An explicit patient_sex override is a pure
-    what-if simulation and never touches the DB. A patient_id triggers an RBAC check
-    (a PATIENT may only query their own profile; a CLINICIAN may query any) and writes
-    an AuditLog VIEW entry, since it resolves a real patient's stored demographic data.
+    Shared by predict.py and explain.py. An explicit patient_sex override is a
+    pure what-if simulation and never touches the DB.
+
+    A patient_id goes through the same assignment-scoped check as the patients
+    router (load_accessible_patient): a PATIENT reaches only their own record,
+    a CLINICIAN only patients they're actively assigned to, and anything else
+    is a 404. Without routing through that shared check, this would be a side
+    door where any clinician could score any patient.
     """
     if patient_sex_override is not None:
         return patient_sex_override == BiologicalSex.FEMALE
@@ -32,18 +36,7 @@ async def resolve_apply_female_bias(
     if patient_id is None:
         return False
 
-    if current_user.role == UserRole.PATIENT:
-        own_profile_id = await db.scalar(
-            select(PatientProfile.id).where(PatientProfile.user_id == current_user.id)
-        )
-        if own_profile_id != patient_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Patients may only query their own profile"
-            )
-
-    profile = await db.get(PatientProfile, patient_id)
-    if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient profile not found")
+    profile = await load_accessible_patient(patient_id, current_user, db)
 
     db.add(
         AuditLog(

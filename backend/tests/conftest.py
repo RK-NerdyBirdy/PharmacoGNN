@@ -10,6 +10,9 @@ from pathlib import Path
 # value for the whole test session. Disabled so rapid test requests don't
 # trip the same per-IP bucket the real app protects login/register with.
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+# Capture mail in-process instead of talking to MailHog/SMTP, so the suite is
+# hermetic and can read invite tokens straight out of the outbox.
+os.environ.setdefault("EMAIL_BACKEND", "memory")
 
 import pytest
 from alembic import command
@@ -68,12 +71,69 @@ def clinician_headers(client: TestClient) -> dict[str, str]:
 
 
 @pytest.fixture
-def patient_user(client: TestClient) -> tuple[dict[str, str], str]:
-    """(auth_headers, user_id) for a fresh PATIENT-role user with no profile yet."""
-    return _register_and_login(client, "PATIENT", "patient")
+def other_clinician_headers(client: TestClient) -> dict[str, str]:
+    """A second clinician with no assignment to anyone -- for access-scoping tests."""
+    headers, _ = _register_and_login(client, "CLINICIAN", "clinician_other")
+    return headers
+
+
+PROFILE_FIELDS = {
+    "legal_name": "Jane Doe",
+    "date_of_birth": "1990-05-14",
+    "medical_record_number": "MRN-TEST-0001",
+    "emergency_contact": "John Doe, 555-1234",
+    "biological_sex": "FEMALE",
+    "age": 36,
+}
+
+
+def invite_token_for(email: str) -> str:
+    """Pull the activation token out of the captured invite email."""
+    from app.services.email import get_backend
+
+    message = get_backend().last_to(email)
+    assert message is not None, f"no invite email captured for {email}"
+    return message.body.split("token=")[1].split()[0]
+
+
+def onboard_patient(
+    client: TestClient, clinician_headers: dict[str, str], *, activate: bool = True, **overrides
+) -> dict:
+    """Create a patient the way a clinician actually does, then activate them.
+
+    Patients can't self-register any more, so every patient in the suite comes
+    through this -- which means the tests exercise the real onboarding path
+    rather than a shortcut that no longer exists in production.
+    """
+    email = unique_email("patient")
+    body = {**PROFILE_FIELDS, **overrides, "email": email}
+
+    r = client.post("/api/v1/patients", headers=clinician_headers, json=body)
+    assert r.status_code == 201, r.text
+    profile = r.json()
+
+    result = {
+        "patient_id": profile["id"],
+        "user_id": profile["user_id"],
+        "email": email,
+        "profile": profile,
+        "headers": None,
+    }
+    if activate:
+        token = invite_token_for(email)
+        r = client.post("/api/v1/auth/activate", json={"token": token, "password": TEST_PASSWORD})
+        assert r.status_code == 200, r.text
+        result["headers"] = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    return result
 
 
 @pytest.fixture
-def patient_user_2(client: TestClient) -> tuple[dict[str, str], str]:
-    """A second, distinct patient -- for cross-patient RBAC tests."""
-    return _register_and_login(client, "PATIENT", "patient2")
+def patient(client: TestClient, clinician_headers: dict[str, str]) -> dict:
+    """An onboarded, activated patient assigned to `clinician_headers`."""
+    return onboard_patient(client, clinician_headers)
+
+
+@pytest.fixture
+def other_patient(client: TestClient, clinician_headers: dict[str, str]) -> dict:
+    """A second distinct patient -- for cross-patient access tests."""
+    return onboard_patient(client, clinician_headers)

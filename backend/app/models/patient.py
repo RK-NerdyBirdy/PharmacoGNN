@@ -5,7 +5,7 @@ import enum
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Date, Enum, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, String, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -59,6 +59,9 @@ class PatientProfile(TimestampMixin, Base):
     age: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
 
     user: Mapped["User"] = relationship(back_populates="patient_profile")
+    assignments: Mapped[list["PatientAssignment"]] = relationship(
+        back_populates="patient", cascade="all, delete-orphan"
+    )
     conditions: Mapped[list["PatientCondition"]] = relationship(
         back_populates="patient", cascade="all, delete-orphan"
     )
@@ -66,6 +69,68 @@ class PatientProfile(TimestampMixin, Base):
         back_populates="patient", cascade="all, delete-orphan"
     )
     audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="target_patient")
+
+
+class PatientAssignment(TimestampMixin, Base):
+    """Which clinician(s) currently have authority over a patient.
+
+    Access to a patient is granted by an active row here -- NOT by holding the
+    CLINICIAN role. A clinician with no active assignment to a patient cannot
+    see that patient at all (and gets a 404, not a 403, so the API doesn't
+    leak that the patient exists).
+
+    Multiple active assignments per patient are legal by design: a transfer
+    grants the receiving clinician access without immediately revoking the
+    sending clinician's, so both hold access during the handover window.
+    Exactly one active assignment per patient is is_primary.
+
+    Rows are ended (ended_at set), never deleted, so "who was entitled to see
+    this record on date X" stays answerable after a transfer.
+    """
+
+    __tablename__ = "patient_assignments"
+    __table_args__ = (
+        # At most one live assignment per (patient, clinician) pair.
+        Index(
+            "uq_patient_assignments_active_pair",
+            "patient_id",
+            "clinician_id",
+            unique=True,
+            postgresql_where=text("ended_at IS NULL"),
+        ),
+        # At most one live *primary* clinician per patient.
+        Index(
+            "uq_patient_assignments_active_primary",
+            "patient_id",
+            unique=True,
+            postgresql_where=text("ended_at IS NULL AND is_primary"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    patient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("patient_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    clinician_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    assigned_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    ended_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    ended_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    patient: Mapped["PatientProfile"] = relationship(back_populates="assignments")
+    clinician: Mapped["User"] = relationship(foreign_keys=[clinician_id])
 
 
 class PatientCondition(TimestampMixin, Base):
