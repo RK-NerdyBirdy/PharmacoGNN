@@ -16,6 +16,7 @@ bcrypt<4.1
 cryptography>=42.0
 python-dotenv>=1.0
 slowapi>=0.1.9
+aiosmtplib>=3.0
 
 # --- Phase 2: GNN inference engine ---
 torch>=2.3

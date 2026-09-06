@@ -91,6 +91,28 @@ class Settings(BaseSettings):
     RATE_LIMIT_DEFAULT: str = "60/minute"
     RATE_LIMIT_AUTH: str = "20/minute"
 
+    # --- Phase B: email + patient onboarding ---
+    # Where invite/consent links point. Must be the FRONTEND origin, not the
+    # API's -- the link opens a page, which then calls the API.
+    APP_BASE_URL: str = "http://localhost:3000"
+
+    # "smtp" talks to a real server (MailHog in dev); "memory" captures
+    # messages in-process for tests to assert on; "console" just logs them.
+    EMAIL_BACKEND: str = "smtp"
+    SMTP_HOST: str = "localhost"
+    SMTP_PORT: int = 1025  # MailHog's default; 587 for most real providers
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_START_TLS: bool = False  # MailHog speaks plaintext; real SMTP wants True
+    SMTP_TIMEOUT_SECONDS: float = 10.0
+    EMAIL_FROM: str = "no-reply@pharmacognn.local"
+    EMAIL_FROM_NAME: str = "PharmacoGNN"
+
+    # Invite links are single-use and expire. 72h gives a patient a long
+    # weekend to act without leaving a credential-equivalent lying around
+    # indefinitely.
+    INVITE_TOKEN_TTL_HOURS: int = 72
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]

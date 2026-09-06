@@ -1,11 +1,23 @@
 from app.models.audit import AuditActionType, AuditLog
-from app.models.patient import BiologicalSex, PatientCondition, PatientProfile, PatientRegimen
+from app.models.email import EmailDelivery, EmailStatus
+from app.models.invitation import UserInvitation
+from app.models.patient import (
+    BiologicalSex,
+    PatientAssignment,
+    PatientCondition,
+    PatientProfile,
+    PatientRegimen,
+)
 from app.models.user import User, UserRole
 
 __all__ = [
     "User",
     "UserRole",
+    "UserInvitation",
+    "EmailDelivery",
+    "EmailStatus",
     "PatientProfile",
+    "PatientAssignment",
     "PatientCondition",
     "PatientRegimen",
     "BiologicalSex",

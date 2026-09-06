@@ -1,0 +1,47 @@
+{
+  "prescriber_name": "Dr. Elena Ruiz, MD (External - Riverside Cardiology)",
+  "issued_date": "2026-08-15",
+  "allow_partial": true,
+  "items": [
+    {
+      "drug_name": "Aspirin",
+      "pubchem_cid": "CID000002244",
+      "dosage": "81mg",
+      "frequency": "once daily",
+      "route": "oral",
+      "start_date": "2026-08-15",
+      "end_date": null,
+      "instructions": "Take with food"
+    },
+    {
+      "drug_name": "Metformin",
+      "pubchem_cid": null,
+      "dosage": "500mg",
+      "frequency": "twice daily",
+      "route": "oral",
+      "start_date": "2026-08-15",
+      "end_date": null,
+      "instructions": "Take with meals to reduce GI upset"
+    },
+    {
+      "drug_name": "Losartan",
+      "pubchem_cid": null,
+      "dosage": "50mg",
+      "frequency": "once daily",
+      "route": "oral",
+      "start_date": "2026-08-15",
+      "end_date": "2027-02-15",
+      "instructions": null
+    },
+    {
+      "drug_name": "Amoxicillin",
+      "pubchem_cid": null,
+      "dosage": "500mg",
+      "frequency": "three times daily",
+      "route": "oral",
+      "start_date": "2026-08-15",
+      "end_date": "2026-08-25",
+      "instructions": "Complete full course even if symptoms improve. NOTE: intentionally not in the model's 645-drug vocabulary -- demonstrates the 'unresolved' path when allow_partial=true."
+    }
+  ]
+}
