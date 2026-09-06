@@ -1470,6 +1470,9 @@ body,.workspace-body,.workspace-body *{font-family:'Fredoka',sans-serif!importan
 :root[data-theme='dark'] .workspace-body .medicine-view3d,:root[data-theme='dark'] .workspace-body .matrix-3d-btn{font-weight:700!important}
 :root[data-theme='dark'] .workspace-body .medicine-badge{background:#4b2d46!important;color:#fff!important}
 
+/* Long medicine names remain contained in the regimen and pair-summary cards. */
+.screen-overview #medicinesCard .medicine-info{min-width:0;overflow:hidden}.screen-overview #medicinesCard .medicine-name{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.screen-overview .review-card .ws-card-header h2{white-space:normal!important;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.28}.screen-overview .review-card .ws-card-header{min-width:0}.screen-overview .review-card{min-width:0}
+
 /* ---------- Contain the interaction matrix as the regimen grows ---------- */
 /* Appended deliberately after the team's "Final overview layout" block above
    (which reintroduces a fixed 60px cell / overflow:visible matrix-wrap, tuned
