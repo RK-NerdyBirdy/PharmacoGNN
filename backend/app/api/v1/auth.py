@@ -3,6 +3,8 @@ from __future__ import annotations
 import datetime as dt
 from typing import Annotated
 
+# 1. Import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,7 +77,9 @@ async def login(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
 
     access_token = create_access_token(subject=str(user.id), role=user.role.value)
-    return Token(access_token=access_token)
+    
+    # 4. Standard OAuth2 expects the token_type to be included
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
 @router.get("/activate/{token}", response_model=InvitationPreview)
@@ -133,7 +137,7 @@ async def activate_account(
 
 
 @router.post("/refresh", response_model=Token)
-async def refresh(current_user: Annotated[User, Depends(get_current_user)]) -> Token:
+async def refresh(current_user: Annotated[User, Depends(get_current_user)]) -> Any:
     """Re-issues a fresh access token from a still-valid one.
 
     This is the simple "sliding session" pattern -- it re-signs a new token
