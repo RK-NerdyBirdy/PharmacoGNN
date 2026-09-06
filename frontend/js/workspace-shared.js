@@ -3,6 +3,7 @@ const UI = {
   text:(id,s)=>{const n=document.getElementById(id);if(n)n.textContent=s;},
   pair:()=>{const s=PharmaStore.getState();return s.selectedPair.map(id=>s.medicines.find(m=>m.id===id)).filter(Boolean);},
   go:page=>{location.href=page+'.html';},
+  t:(key,variables)=>window.PharmaPreferences?PharmaPreferences.t(key,variables):key,
   announce:s=>{document.getElementById('statusMessage').textContent=s;},
   matrix(regimen,interactive=false){
     const {medicines}=regimen;const e=UI.escape;
@@ -13,15 +14,19 @@ const UI = {
   modal(title,html){const d=document.getElementById('demoDialog');d.innerHTML='<form method="dialog"><button class="dialog-close" aria-label="Close dialog">×</button></form><h2 id="dialogTitle">'+UI.escape(title)+'</h2>'+html;d.showModal();return d;}
 };
 function renderWorkspaceShell(active){
-  const routes=[['▦','Regimen overview','workspace'],['◎','Demographic lens','demographic-lens'],['⌘','Pathway inspector','pathway-inspector'],['⇄','Substitution engine','substitution-engine'],['☰','Review & export','regimen-simulation']];
-  document.getElementById('sidebarNav').innerHTML=routes.map(([icon,label,page])=>'<a class="sidebar-nav-item '+(active===label?'active':'')+'" '+(active===label?'aria-current="page"':'')+' href="'+page+'.html"><span aria-hidden="true" class="sidebar-nav-icon">'+icon+'</span>'+label+'</a>').join('');
+  window.PharmaPreferences?.apply(document);
+  const routes=[['▦','Regimen overview','workspace','nav.regimen'],['◎','Demographic lens','demographic-lens','nav.demographic'],['⌘','Pathway inspector','pathway-inspector','nav.pathway'],['⇄','Substitution engine','substitution-engine','nav.substitution'],['☰','Review & export','regimen-simulation','nav.review']];
+  document.getElementById('sidebarNav').innerHTML=routes.map(([icon,label,page,key])=>'<a class="sidebar-nav-item '+(active===label?'active':'')+'" '+(active===label?'aria-current="page"':'')+' href="'+page+'.html"><span aria-hidden="true" class="sidebar-nav-icon">'+icon+'</span>'+UI.t(key)+'</a>').join('');
   const user=PharmaStore.getUser();UI.text('userAvatar',user.initials);document.getElementById('userAvatar').title=user.name+' · '+user.role;
-  document.querySelector('.workspace-topbar').insertAdjacentHTML('afterbegin','<a class="case-breadcrumb" href="workspace.html">Workspace / Demo case 004</a><span class="pill pill-muted">Synthetic data</span>');
+  document.querySelector('.workspace-topbar').insertAdjacentHTML('afterbegin','<a class="case-breadcrumb" href="workspace.html">'+UI.t('shell.workspace')+'</a><span class="pill pill-muted">'+UI.t('shell.synthetic')+'</span>');
   const brand=document.querySelector('.workspace-sidebar .brand');brand.outerHTML='<a class="brand" href="../index.html" aria-label="PharmaGNN home">'+brand.innerHTML+'</a>';
   document.querySelector('.sidebar-callout-title').textContent='A clearer picture.';document.querySelector('.sidebar-callout-text').textContent='Every pair. Every pathway. One considered decision.';
   UI.text('footerLeft','Research prototype • Synthetic scores • Clinician review required');UI.text('footerRight','Model demo-v0.1');
-  document.querySelector('.sidebar-footer-link').insertAdjacentHTML('beforebegin','<button class="reset-demo" id="resetDemo" type="button">Reset demo</button>');
+  document.querySelector('.sidebar-footer-link').insertAdjacentHTML('beforebegin','<button class="reset-demo" id="resetDemo" type="button">'+UI.t('shell.reset')+'</button>');
   document.body.insertAdjacentHTML('beforeend','<p class="status-message" id="statusMessage" role="status" aria-live="polite"></p><dialog id="demoDialog" aria-labelledby="dialogTitle"></dialog>');
-  document.getElementById('resetDemo').onclick=()=>{UI.modal('Reset the demo?','<p>This restores the sample medicines and patient context.</p><button class="btn btn-primary" id="confirmReset">Reset demo</button>');document.getElementById('confirmReset').onclick=()=>{PharmaStore.reset();UI.go('workspace');};};
-  const quick=document.createElement('a');quick.className='quick-add btn btn-secondary';quick.href='workspace.html#add-medicine';quick.textContent='+ Add a medicine';if(active!=='Regimen overview')document.querySelector('.workspace-topbar .topbar-right').prepend(quick);
+  document.getElementById('resetDemo').onclick=()=>{UI.modal(UI.t('shell.resetTitle'),'<p>'+UI.t('shell.resetBody')+'</p><button class="btn btn-primary" id="confirmReset">'+UI.t('shell.confirmReset')+'</button>');document.getElementById('confirmReset').onclick=()=>{PharmaStore.reset();UI.go('workspace');};};
+  const quick=document.createElement('a');quick.className='quick-add btn btn-secondary';quick.href='workspace.html#add-medicine';quick.textContent=UI.t('shell.addMedicine');
+  const settings=document.createElement('a');settings.className='settings-link';settings.href='settings.html';settings.textContent='⚙ '+UI.t('nav.settings');settings.setAttribute('aria-label',UI.t('nav.settings'));
+  const topbar=document.querySelector('.workspace-topbar .topbar-right');topbar.prepend(settings);if(active!=='Regimen overview')topbar.prepend(quick);
+  window.PharmaPreferences?.translateDocument(document);
 }

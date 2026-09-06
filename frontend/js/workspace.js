@@ -10,7 +10,6 @@ const PUBCHEM_CID_BY_MEDICINE_ID = {
 renderWorkspaceShell('Regimen overview');
 UI.text('pageHeading','One regimen. A clearer picture.');UI.text('pageSubhead','Review the priority pairs, then explore what might change.');
 UI.text('medicinesNote');UI.text('medicinesFootnote','Add dose and indication for a more complete review.');
-UI.text('matrixNote','Select a pair to inspect its model evidence.');UI.text('matrixFootnote','Pairwise estimates do not capture all multi-drug effects.');
 UI.text('exploreTitle','Explore a change');UI.text('exploreText','');UI.text('findAlternativesBtn','Find alternatives →');
 document.getElementById('matrixLegend').innerHTML=['priority','review','lower','unknown'].map(k=>'<span class="legend-chip legend-'+k+'">'+k[0].toUpperCase()+k.slice(1)+'</span>').join('');
 // Shrinks the interaction matrix's cell size/font as the regimen grows, via
