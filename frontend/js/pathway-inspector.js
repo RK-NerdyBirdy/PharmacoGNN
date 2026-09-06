@@ -1,4 +1,5 @@
 (function () {
+  const PUBCHEM_CID_BY_MEDICINE_ID = { amitriptyline: 2160, citalopram: 2771 };
   const inspectorData = {
     pageHeading: 'Amitriptyline × citalopram',
     pageSubhead: 'Score 82 / 100',
@@ -212,6 +213,38 @@
 
   document.getElementById('findAlternativesBtn').onclick=()=>UI.go('substitution-engine');
   document.getElementById('viewEvidenceBtn').onclick=()=>UI.modal('Evidence details','<p>This is an illustrative graph, not a validated causal explanation.</p><dl><dt>Selected node</dt><dd>'+UI.escape(nodeById(activePathway().selectedNodeId).label)+'</dd><dt>Source status</dt><dd>Curated source records are not connected yet.</dd><dt>Model</dt><dd>demo-v0.1 · synthetic fixtures</dd></dl>');
+  // Overlays real /explain/interaction content (mechanism, severity,
+  // guidance, real risk score) onto the panel renderNodeDetail() just filled
+  // with illustrative copy — only for the real-CID pair, leaves the
+  // illustrative graph/text as-is on any failure or unsupported pair.
+  async function syncRealExplanation() {
+    const pair = UI.pair();
+    if (pair.length !== 2 || !window.ApiClient || !ApiClient.isAuthenticated()) return;
+    const cidA = PUBCHEM_CID_BY_MEDICINE_ID[pair[0].id];
+    const cidB = PUBCHEM_CID_BY_MEDICINE_ID[pair[1].id];
+    if (!cidA || !cidB) return;
+
+    try {
+      const result = await ApiClient.explainInteraction({ drug_a_cid: String(cidA), drug_b_cid: String(cidB) });
+      const ex = result.explanation;
+      document.getElementById('pageHeading').textContent = `${result.drug_a_name} × ${result.drug_b_name}`;
+      document.getElementById('pageSubhead').textContent = `Score ${Math.round(result.risk_score)} / 100`;
+      document.getElementById('scorePill').textContent = `Score ${Math.round(result.risk_score)} / 100`;
+      document.getElementById('whyTitle').textContent = `${ex.severity_classification}: ${result.adverse_effect}`;
+      document.getElementById('whyText').textContent = ex.patient_summary;
+      document.getElementById('sourceStatusLabel').textContent = 'CLINICAL MECHANISM';
+      document.getElementById('sourceStatusText').textContent = ex.clinical_mechanism;
+      document.getElementById('attributionLabel').textContent = 'ACTIONABLE GUIDANCE';
+      document.getElementById('attributionText').textContent = ex.actionable_guidance;
+      if (!ex.xai_pathway.data_available) {
+        document.getElementById('pathwayFootnote').textContent =
+          'No real graph topology available for this pair yet — showing the illustrative subgraph below.';
+      }
+    } catch (err) {
+      console.warn('Real interaction explanation unavailable, showing illustrative copy:', err.message);
+    }
+  }
+
   renderWorkspaceShell('Pathway inspector');
   renderHeading();
   renderToolbar();
@@ -219,4 +252,5 @@
   renderEdgeLegend();
   renderGraph();
   renderNodeDetail();
+  syncRealExplanation();
 })();

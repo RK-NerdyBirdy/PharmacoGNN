@@ -74,6 +74,50 @@ function render(){const s=PharmaStore.getState(),e=UI.escape;
   UI.text('scoreValue',value??'—');if(value!==null){const node=document.getElementById('scoreValue');const countKey=pair.map(m=>m.id).join('|')+':'+value;if(node.dataset.countKey!==countKey){node.dataset.countKey=countKey;const start=performance.now();const tick=now=>{const t=Math.min(1,(now-start)/1000);node.textContent=Math.round(value*(t*t*(3-2*t)))+'%';if(t<1)requestAnimationFrame(tick)};node.textContent='0%';requestAnimationFrame(tick)}}UI.text('scoreMax','');UI.text('scoreCaption','Synthetic interaction score');UI.text('reviewDescription',pair.length===2?pair.map(m=>m.name).join(' + ')+'. '+(value===null?'No supported estimate for this pair.':'Inspect associated pathways.'):'Add at least two medicines to start your review.');UI.text('inspectPathwayBtn','Inspect pathway ↗');
   document.getElementById('inspectPathwayBtn').disabled=pair.length<2;document.getElementById('findAlternativesBtn').disabled=pair.length<2;
   const graphBtn=document.getElementById('viewDrugGraphBtn');if(graphBtn)graphBtn.disabled=s.medicines.length<2;
+  syncRealPredictions();
+}
+
+// Overlays real GNN predictions from POST /predict/regimen onto the
+// already-rendered demo matrix, for whichever medicines have a real PubChem
+// CID (PUBCHEM_CID_BY_MEDICINE_ID) — placeholder/custom-added medicines keep
+// their demo "?" cells since the backend has no drug to look them up by.
+// Silently leaves the demo values in place on any failure (backend down,
+// unauthenticated, <2 real-CID medicines) so the page still works standalone.
+let predictionRequestToken = 0;
+async function syncRealPredictions() {
+  const myToken = ++predictionRequestToken;
+  const s = PharmaStore.getState();
+  const eligible = s.medicines
+    .map((m, i) => ({ m, letter: String.fromCharCode(65 + i), cid: PUBCHEM_CID_BY_MEDICINE_ID[m.id] }))
+    .filter((x) => x.cid);
+  if (eligible.length < 2 || !window.ApiClient || !ApiClient.isAuthenticated()) return;
+
+  let result;
+  try {
+    result = await ApiClient.predictRegimen({ drug_cids: eligible.map((x) => String(x.cid)) });
+  } catch (err) {
+    console.warn('Real regimen prediction unavailable, showing demo scores:', err.message);
+    return;
+  }
+  if (myToken !== predictionRequestToken) return; // state changed while this was in flight
+
+  const table = document.getElementById('interactionMatrix');
+  eligible.forEach((row, i) => {
+    eligible.forEach((col, j) => {
+      if (i === j) return;
+      const score = result.interaction_matrix[i][j];
+      const kind = PharmaDemo.classifyScore(score);
+      const rowIndex = row.letter.charCodeAt(0) - 65; // 0-based position in the full medicine list
+      const colIndex = col.letter.charCodeAt(0) - 65;
+      const cell = table.querySelector(
+        `tbody tr:nth-child(${rowIndex + 1}) td:nth-child(${colIndex + 2})`
+      );
+      if (!cell) return;
+      cell.className = `cell-${kind}`;
+      const target = cell.querySelector('button, span') || cell;
+      target.textContent = Math.round(score);
+    });
+  });
 }
 document.getElementById('medicineList').onclick=e=>{
   const remove=e.target.closest('[data-remove]');
