@@ -69,9 +69,12 @@
   }
 
   async function fetchSdf(cid) {
+    // The GNN vocabulary identifies drugs as CID000000000 while the PubChem
+    // proxy route accepts PubChem's numeric CID parameter.
+    const pubchemCid = String(cid).replace(/^CID/i, '');
     let resp;
     try {
-      resp = await fetch(`${API_BASE}/api/v1/pubchem/molecule/${cid}`);
+      resp = await fetch(`${API_BASE}/api/v1/pubchem/molecule/${encodeURIComponent(pubchemCid)}`);
     } catch {
       // fetch() throws a generic "Failed to fetch" for any network-level failure
       // (backend not running, wrong port, CORS) — the specific cause isn't
