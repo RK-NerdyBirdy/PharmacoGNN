@@ -16,6 +16,7 @@ bcrypt<4.1
 cryptography>=42.0
 python-dotenv>=1.0
 slowapi>=0.1.9
+aiosmtplib>=3.0
 
 # --- Phase 2: GNN inference engine ---
 torch>=2.3
@@ -23,6 +24,16 @@ torch-geometric>=2.5
 
 # --- Phase 3: LLM explainability (OpenRouter) ---
 httpx>=0.27
+
+# --- Phase D: interaction reports (PDF rendering) ---
+# Pure-Python, no system-library dependency (unlike weasyprint's Pango/Cairo
+# requirement) -- matters here since report generation runs in the same
+# container as everything else, with no separate rendering sidecar.
+reportlab>=4.0
+
+# --- Phase E: report QR access ---
+# [pil] extra: qrcode's image factory needs Pillow to actually render a PNG.
+qrcode[pil]>=7.4
 
 # --- Testing ---
 # Tests use FastAPI's synchronous TestClient throughout (it bridges to async

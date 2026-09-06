@@ -13,3 +13,6 @@ backend/.env
 
 # Node
 node_modules/
+
+# Ephemeral report PDFs -- durable analysis lives in the DB, not here
+backend/report_files/

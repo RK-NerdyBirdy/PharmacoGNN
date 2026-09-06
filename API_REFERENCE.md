@@ -25,13 +25,19 @@ The API uses JWT bearer tokens. There is no session/cookie auth.
 
 Tokens expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (default **60 minutes**). Call `POST /api/v1/auth/refresh` (bearer-authenticated, no body) proactively before that to get a new token without re-entering credentials — see below. Once a token has actually expired, `refresh` also returns `401` like everything else, and the user must log in again. The decoded JWT payload shape is `{"sub": "<user_id>", "role": "CLINICIAN"|"PATIENT", "exp": <unix_timestamp>}`, in case you need to read the role client-side without an extra call (e.g. for role-gated UI).
 
-### Roles (RBAC)
+### Roles and assignment (RBAC)
 
-Two roles exist: `CLINICIAN` and `PATIENT`. Every endpoint that accepts an optional `patient_id`:
+Two roles exist: `CLINICIAN` and `PATIENT`. **Holding the `CLINICIAN` role does not by itself grant access to any patient** — access comes from an active *assignment* between that specific clinician and that specific patient.
 
-- A `PATIENT` may only pass **their own** patient profile's id (`403` otherwise).
-- A `CLINICIAN` may pass any patient's id.
-- Passing a `patient_id` triggers a database write (an audit log entry) and is RBAC-checked — it's a real PHI access, not a free-form parameter. If you just want a hypothetical/what-if calculation, use `patient_sex` instead (see below) and omit `patient_id` entirely; that path never touches the database.
+- A `PATIENT` reaches only their own record.
+- A `CLINICIAN` reaches only patients they hold an active assignment for. The clinician who creates a patient is automatically assigned as their primary.
+- A patient may have **more than one** assigned clinician at once (a transfer grants the receiving clinician access without immediately revoking the sender's).
+
+**Unentitled access returns `404`, not `403`** — a `403` would confirm that a patient with that id exists, which is itself a disclosure. You cannot distinguish "no such patient" from "not yours", by design.
+
+The one place you'll see `403` on a patient route is a **role/method** violation rather than a visibility one: e.g. a patient calling a clinician-only method on their own record. The record isn't hidden from them (they can `GET` it) — only the operation is.
+
+This applies to every endpoint accepting a `patient_id`, including `predict/*` and `explain/*`. Passing a `patient_id` triggers an audit-log write — it's a real PHI access, not a free-form parameter. For hypothetical/what-if calculations use `patient_sex` instead and omit `patient_id`; that path never touches the database.
 
 ---
 
@@ -93,7 +99,9 @@ No auth required. Poll this to know if the model finished loading and whether it
 
 ### `POST /api/v1/auth/register`
 
-Creates a login identity only. **Does not** create a `PatientProfile` — a `PATIENT`-role user can log in immediately after registering, but has no profile data (and can't be passed as `patient_id` anywhere) until either they call `POST /api/v1/patients/me` themselves or a clinician calls `POST /api/v1/patients` for them (see section 3, "Patient management").
+**Clinician self-signup only.** Sending `"role": "PATIENT"` returns **`403`** — patient accounts are created by a clinician via `POST /api/v1/patients`, which also creates their profile, the assignment granting access, and the invite that lets them set a password. A self-registered patient would have no profile and no clinician, could see nothing, and would be a way to mint patient logins outside onboarding.
+
+Creates a login identity only — no `PatientProfile`.
 
 Auth: none.
 
@@ -142,7 +150,29 @@ Auth: none.
 }
 ```
 
-**Errors:** `401` "Incorrect email or password" — deliberately identical message whether the email doesn't exist, the password is wrong, or the account is deactivated (`is_active=false`), so the frontend can't distinguish these (don't try to build UI copy that assumes which one it was).
+**Errors:** `401` "Incorrect email or password" — deliberately identical whether the email doesn't exist, the password is wrong, the account is deactivated, **or the account exists but hasn't been activated yet** (an invited patient who hasn't set a password). Login can't be used to discover which addresses have pending invites, so don't build UI copy that assumes which case it was.
+
+---
+
+### `GET /api/v1/auth/activate/{token}`
+
+Auth: none. Validate an invite **before** rendering the set-password form.
+
+**Response `200`:** `{ "email": "patient@example.com", "expires_at": "..." }` — show the email read-only so the patient knows which account they're activating.
+
+**Errors:** `410` expired · `409` already used · `404` unknown token. These are distinct on purpose so the page can say something useful; tokens are 256-bit random values, so confirming whether one is real isn't a practical attack surface.
+
+---
+
+### `POST /api/v1/auth/activate`
+
+Auth: none. Redeem the invite: set the first password and log in.
+
+**Request body:** `{ "token": "...", "password": "at-least-8-chars" }`
+
+**Response `200`:** same as `/login` — an `access_token`, so the patient lands logged in rather than being bounced to a login form.
+
+**Errors:** `410` / `409` / `404` as above; `422` if the password fails length rules. Tokens are **single-use** — a second attempt with the same token is `409`.
 
 ---
 
@@ -160,31 +190,36 @@ Re-issues a fresh access token from the current one. This is the simple "sliding
 
 ## Patient management (`/api/v1/patients`)
 
-None of this existed as of the previous version of this doc — the DB models existed but had no API surface. All endpoints below are auth-required.
+All endpoints below are auth-required and assignment-scoped (see "Roles and assignment" above).
 
 **Authorization model:**
-- A `PATIENT` may read/write only their **own** profile (via `/me`, or by passing their own `patient_id`), and may **read** (not write) their own conditions/regimens.
-- A `CLINICIAN` may read/write **any** patient's profile, conditions, and regimens. Conditions and regimens can only ever be created/modified by a `CLINICIAN` — a `PATIENT` cannot self-diagnose a condition or self-prescribe a regimen through this API (`403` on the attempt).
-- Every read and write in this section writes an `AuditLog` row, same as the `patient_id` mechanism on the predict/explain endpoints.
+- A `PATIENT` may **read** their own profile, conditions and regimens, and may edit a **narrow set of their own demographics** (see `PATCH /me`). They can never write clinical data — no self-diagnosing a condition, no self-prescribing a regimen (`403` on the attempt).
+- A `CLINICIAN` may read/write the profile, conditions and regimens of patients **they are actively assigned to**, and nobody else's (`404` for everyone else's).
+- Every read and write in this section writes an `AuditLog` row.
 
-### `POST /api/v1/patients/me`
+### `GET /api/v1/patients`
 
-`PATIENT` role only. Creates the caller's own profile. `409` if they already have one.
+`CLINICIAN` only. The caller's assigned-patient roster, paginated (`limit` 1-200 default 50, `offset` default 0).
 
-**Request body:**
+**Response `200`:**
 ```json
-{
-  "legal_name": "Jane Doe",
-  "date_of_birth": "1990-05-14",
-  "medical_record_number": "MRN-12345",
-  "emergency_contact": "John Doe, 555-1234",
-  "biological_sex": "FEMALE",
-  "age": 36
-}
+[
+  { "id": "...", "user_id": "...", "legal_name": "Jane Doe", "age": 36,
+    "biological_sex": "FEMALE", "is_primary": true,
+    "assigned_at": "2026-09-06T...", "active_regimen_count": 4,
+    "activation_status": "active" }
+]
 ```
-`legal_name`, `date_of_birth`, `medical_record_number`, `emergency_contact` are encrypted at rest (AES-256-GCM) — you send/receive them as plain strings, encryption is transparent to the API.
 
-**Response `201`:**
+`activation_status` is `"pending"` until the patient redeems their invite and sets a password, then `"active"` — surface it so clinicians can see who hasn't onboarded yet.
+
+> **No name/MRN search parameter, and there can't be one** without a schema change: `legal_name` and `medical_record_number` are encrypted at rest with a non-deterministic cipher, so the database cannot filter or match on them. Filter client-side over a fetched page, or ask for a blind-index column to be added.
+
+### `GET /api/v1/patients/me`
+
+`PATIENT` role only. `404` if no profile has been created for them yet.
+
+**Response `200`:**
 ```json
 {
   "id": "aba92e50-49d2-4898-b304-fc25f94af825",
@@ -197,26 +232,70 @@ None of this existed as of the previous version of this doc — the DB models ex
   "age": 36
 }
 ```
+`legal_name`, `date_of_birth`, `medical_record_number`, `emergency_contact` are encrypted at rest (AES-256-GCM) — you send/receive them as plain strings, encryption is transparent to the API.
 
-### `GET /api/v1/patients/me`
+### `PATCH /api/v1/patients/me`
 
-`PATIENT` role only. `404` if they haven't created a profile yet. Response shape as above.
+`PATIENT` role only. The patient's own limited self-edit. Accepts **only** `legal_name`, `age`, `emergency_contact`.
+
+Anything else — `date_of_birth`, `medical_record_number`, `biological_sex` — is rejected with **`422`**, not silently ignored. (`biological_sex` in particular feeds the model's risk stratification, so a patient editing it would change their own risk scores.)
+
+> Email changes are **not** handled here. Email lives on the `User` record and changing it also changes where consent codes are delivered, so it needs a verify-the-new-address flow. Not yet implemented.
 
 ### `POST /api/v1/patients`
 
-`CLINICIAN` role only — onboards a patient who doesn't have a profile yet.
+`CLINICIAN` only — onboards a patient end-to-end: creates the login account, the profile, the assignment, and emails an invite. **The creating clinician is automatically assigned as primary**; without that the patient would be created and immediately invisible to everyone.
 
-**Request body:** same as `POST /me`, plus a required `user_id` (must be an existing `PATIENT`-role user's id, from `/auth/register`'s response).
+**Request body:** the profile fields shown above, plus `email`. There is no `user_id` — this call creates the account too.
 
-**Errors:** `404` if `user_id` doesn't exist or isn't a `PATIENT`. `409` if that user already has a profile.
+```json
+{ "email": "patient@example.com", "legal_name": "Jane Doe",
+  "date_of_birth": "1990-05-14", "medical_record_number": "MRN-12345",
+  "biological_sex": "FEMALE", "age": 36,
+  "emergency_contact": "John Doe, 555-1234" }
+```
+
+**Response `201`:** the profile, plus:
+```json
+{ "activation_status": "pending", "invite_email_status": "sent" }
+```
+
+The account is created **with no password**. The emailed invite link is the only thing that can set the first one — nothing password-shaped is ever put in an inbox.
+
+> **`invite_email_status: "failed"` does not mean the patient wasn't created.** The database work commits before the email is attempted, so a mail outage leaves a fully usable patient record. Show a non-blocking warning and offer resend — don't treat it as a failed operation.
+
+**Errors:** `409` if that email already has an account.
+
+### `POST /api/v1/patients/{patient_id}/invite/resend`
+
+`CLINICIAN` only (assigned). Issues a fresh invite and **invalidates the previous one** — the old link immediately returns `410`.
+
+**Response `200`:** `{ "invite_email_status": "sent" | "failed" }`
+
+**Errors:** `409` if the account is already activated (nothing to invite). `404` if not assigned.
 
 ### `GET /api/v1/patients/{patient_id}`
 
-Read one profile by its own id (not the user id). `CLINICIAN`: any patient. `PATIENT`: only their own (`403` otherwise). `404` if the id doesn't exist.
+Read one profile by its own id (not the user id). The patient themselves, or an assigned clinician. `404` otherwise.
 
 ### `PATCH /api/v1/patients/{patient_id}`
 
-Partial update — send only the fields you want to change. Same RBAC as the `GET` above. Accepts any of `legal_name`, `date_of_birth`, `medical_record_number`, `emergency_contact`, `biological_sex`, `age`.
+`CLINICIAN` only (assigned). Partial update; accepts `legal_name`, `date_of_birth`, `medical_record_number`, `emergency_contact`, `biological_sex`, `age`. Unknown fields → `422`.
+
+A `PATIENT` calling this gets `403` even on their own record — they have `PATCH /me` instead.
+
+### `GET /api/v1/patients/{patient_id}/access`
+
+Who currently holds access to this record. Readable by the patient themselves and by any assigned clinician.
+
+**Response `200`:**
+```json
+[
+  { "clinician_id": "...", "clinician_email": "doc@example.com",
+    "is_primary": true, "assigned_at": "2026-09-06T..." }
+]
+```
+Expect more than one entry after a transfer — the sending clinician retains access during the handover window.
 
 ### `POST /api/v1/patients/{patient_id}/conditions`
 
@@ -252,12 +331,17 @@ Query params: `active_only` (bool, default `false`), `limit` (1-200, default 50)
 
 `CLINICIAN` only. `prescriber_id` is set automatically to the calling clinician — don't send it.
 
+**⚠️ Breaking change:** `pubchem_cid` is now a **string** in the model's native format (`"CID" + 9 zero-padded digits`, e.g. `"CID000000085"`), not a bare integer. It's also now optional: if omitted, the drug is resolved from `drug_name` instead. Either way, the drug must be one of the model's 645 in-vocabulary drugs or the request is rejected — see the note below.
+
 **Request body:**
 ```json
-{ "pubchem_cid": 85, "drug_name": "Test Drug", "dosage": "10mg BID", "start_date": "2024-01-01" }
+{ "pubchem_cid": "CID000000085", "drug_name": "Test Drug", "dosage": "10mg BID", "start_date": "2024-01-01" }
 ```
+`drug_name` is always required by the schema, but if `pubchem_cid` is present it's authoritative — the stored `drug_name` on the response is the model's canonical name for that CID, not necessarily the text you sent. Omit `pubchem_cid` to resolve purely by name (exact, case-insensitive match against the vocabulary; no fuzzy matching, by design — see below).
 
-**Response `201`:** includes `id`, `patient_id`, `prescriber_id`, `end_date: null` (active).
+**Response `201`:** includes `id`, `patient_id`, `prescriber_id`, `end_date: null` (active), `external_prescriber_name` (null for entries added directly through this endpoint), `import_batch_id: null`.
+
+**Errors:** `422` if the drug can't be resolved — response `detail` names the reason (`not_in_vocabulary`, `cid_not_in_vocabulary`, `ambiguous_name`, or `missing_identifier`). This is deliberately strict: a drug the model doesn't know can't be scored, so it's rejected outright rather than silently stored and quietly dropped from every future interaction report. No fuzzy matching either — "Asprin" does not silently become "Aspirin"; a wrong guess here writes the wrong drug into a clinical record, so an honest 422 is preferred over a plausible-looking guess.
 
 ### `GET /api/v1/patients/{patient_id}/regimens`
 
@@ -265,7 +349,50 @@ Query params: `active_only` (bool — filters to `end_date IS NULL`), `limit`, `
 
 ### `PATCH /api/v1/patients/{patient_id}/regimens/{regimen_id}`
 
-`CLINICIAN` only. The way to discontinue a medication is `{"end_date": "2024-06-01"}`. Also accepts `dosage`.
+`CLINICIAN` only. The way to discontinue a medication is `{"end_date": "2024-06-01"}`. Also accepts `dosage`. This **preserves** the row — use it when a medication was genuinely taken and is now stopped.
+
+### `DELETE /api/v1/patients/{patient_id}/regimens/{regimen_id}`
+
+🟢 **New.** `CLINICIAN` only. Returns `204` on success, `404` if the regimen doesn't exist or belongs to a different patient.
+
+Hard delete — the row is actually erased, not just end-dated. This is for correcting a data-entry mistake (a drug that should never have been added), not for stopping a medication someone actually took — use `PATCH .../end_date` for that instead. Deliberately a different HTTP verb from discontinue so a client can't reach for it out of habit.
+
+### `POST /api/v1/patients/{patient_id}/prescriptions`
+
+🟢 **New.** `CLINICIAN` only. Creates multiple regimen rows from one structured prescription in a single call — this is the "dummy prescription" import flow.
+
+**Request body:**
+```json
+{
+  "prescriber_name": "Dr. Elena Ruiz, MD (External)",
+  "issued_date": "2026-08-15",
+  "allow_partial": false,
+  "items": [
+    { "drug_name": "Aspirin", "pubchem_cid": "CID000002244", "dosage": "81mg", "frequency": "once daily", "route": "oral", "start_date": "2026-08-15", "end_date": null, "instructions": "Take with food" },
+    { "drug_name": "Metformin", "dosage": "500mg", "frequency": "twice daily", "route": "oral", "start_date": "2026-08-15" }
+  ]
+}
+```
+| Field | Type | Notes |
+|---|---|---|
+| `prescriber_name` | string \| null | Free text — who actually wrote it, if not the calling clinician (e.g. an outside doctor's dummy prescription being transcribed) |
+| `issued_date` | date \| null | |
+| `allow_partial` | bool, default `false` | See below |
+| `items` | array, 1-50 | Each item has the same shape as `POST .../regimens`, plus `frequency`, `route`, `end_date`, `instructions` |
+
+Every item is resolved the same way as a single manual add. **With `allow_partial: false`** (the default), if *any* item fails to resolve, **nothing is committed** — this avoids leaving a regimen that looks complete but is silently missing a drug the model can't score. **With `allow_partial: true`**, resolvable items are committed and unresolved ones are reported back, uncommitted.
+
+**Response `201`:**
+```json
+{
+  "created": [ /* array of the regimen objects actually written, same shape as GET .../regimens */ ],
+  "unresolved": [
+    { "drug_name": "Amoxicillin", "pubchem_cid": null, "reason": "not_in_vocabulary" }
+  ],
+  "committed": true
+}
+```
+`committed` is `false` only when nothing was written at all (i.e. `allow_partial: false` and at least one item was unresolved). All rows created from one call share the same `import_batch_id`, and carry `external_prescriber_name` set from `prescriber_name` — use both to group/attribute an imported prescription later. A sample request body with a mix of real and deliberately-unresolvable drugs lives at `backend/samples/prescription_example.json`.
 
 ---
 
@@ -471,6 +598,81 @@ LLM-generated structured explanation for one specific adverse effect of a drug p
 
 ---
 
+## Interaction reports (`/api/v1/patients/{id}/reports`, `/api/v1/reports`)
+
+🟢 **New.** A report is a **frozen snapshot**: the full interaction analysis of a patient's **active** regimen (`end_date IS NULL`) at the moment it was generated. Later regimen changes never alter an existing report. RBAC follows the same assignment-scoped rule as everything else under `/patients` — `CLINICIAN` generates/deletes, both `CLINICIAN` (assigned) and `PATIENT` (self) can read.
+
+### `POST /api/v1/patients/{patient_id}/reports`
+
+`CLINICIAN` only. Kicks off generation **asynchronously** — this can involve several LLM calls (one per high-risk pair, up to `REPORT_MAX_EXPLANATIONS`, currently 10), so it doesn't block the request.
+
+**Response `202`:**
+```json
+{ "id": "...", "status": "pending" }
+```
+Poll `GET /api/v1/reports/{id}` until `status` is no longer `"pending"`. Poll every 2-3s with backoff; time out around 2 minutes and offer a retry.
+
+**Errors:** `422` if fewer than two of the patient's active medications exist (nothing to analyze).
+
+### `GET /api/v1/patients/{patient_id}/reports`
+
+List (paginated, `limit`/`offset` as elsewhere), newest first. Excludes soft-deleted reports. Each entry:
+```json
+{ "id": "...", "status": "complete", "created_at": "...", "generated_by": "...",
+  "summary": { "drug_count": 2, "high_risk_pair_count": 1, "regimen_toxicity_index": 61.4 },
+  "file_available": true }
+```
+`summary` is `null` while `status` is `"pending"` or `"failed"`.
+
+### `GET /api/v1/reports/{report_id}`
+
+**Not** nested under `patient_id` — the report is looked up by its own id, and RBAC is enforced from the report's stored `patient_id` (same 404-not-403 rule applies).
+
+**Response `200`:**
+```json
+{
+  "id": "...", "patient_id": "...", "status": "complete",
+  "created_at": "...", "generated_by": "...",
+  "disclaimer": "Not to be taken without clinical supervision.",
+  "model_status": { "degraded_mode": true, "verified": false,
+                    "warning": "This model's absolute risk scores have not been clinically validated..." },
+  "regimen_snapshot": [ { "pubchem_cid": "CID000000085", "drug_name": "...", "dosage": "10mg" } ],
+  "unresolved_drugs": [],
+  "summary": { "drug_count": 2, "high_risk_pair_count": 1, "regimen_toxicity_index": 61.4 },
+  "interaction_matrix": [[0.0, 61.4], [61.4, 0.0]],
+  "pairwise": [ { "drug_a_cid": "...", "drug_b_cid": "...", "top_risk_score": 61.4,
+                  "top_adverse_effect": "thrombocytopenia", "is_high_risk": false,
+                  "female_weighted": true, "adverse_effects": [ /* full 50, same shape as /predict/pairwise */ ] } ],
+  "substitutions": [ { "for_drug_cid": "...", "alternatives": [ /* same shape as /predict/substitute */ ] } ],
+  "explanations": [ { "drug_a_cid": "...", "drug_b_cid": "...", "clinical_mechanism": "...",
+                       "severity_classification": "Moderate", "patient_summary": "...",
+                       "actionable_guidance": "...", "xai_pathway": { "nodes": [], "edges": [], "data_available": false } } ],
+  "file_available": true,
+  "error_message": null
+}
+```
+
+**Mandatory rendering:** `disclaimer` and `model_status.warning` — prominent, always visible, never behind a disclosure toggle, both in the UI and on the PDF (the PDF renders them the same way, as a colored banner at the top).
+
+Notes on specific fields:
+- `unresolved_drugs` is populated only in the rare case a regimen drug is no longer in the model's vocabulary (e.g. the model was swapped after the drug was added) — regimen writes are already validated at write time (see prescriptions/regimens above), so this is a defensive re-check, not the normal path.
+- `pairwise`/`substitutions`/`explanations` only cover **active, resolvable** drugs — anything in `unresolved_drugs` is excluded from the analysis, not silently scored anyway.
+- `substitutions` and `explanations` are only computed for pairs where `is_high_risk` is `true` (same `HIGH_RISK_THRESHOLD` as `/predict/substitute`). A report with no high-risk pairs has both as `[]` — that's a good outcome, not a missing-data bug.
+- If `OPENROUTER_API_KEY` isn't configured, `explanations` is `[]` for every report (the LLM call fails per-pair, is caught, logged, and skipped) — the rest of the report (GNN analysis, substitutions) is unaffected. This is expected in any environment without an OpenRouter key set.
+- `status: "failed"` reports have `error_message` set and empty analysis fields — this happens if fewer than two of the snapshotted drugs turn out resolvable, or the GNN scoring itself throws.
+
+### `GET /api/v1/reports/{report_id}/pdf`
+
+Streams the rendered PDF (`Content-Type: application/pdf`). **Errors:** `409` if the report isn't `"complete"` yet; `404` if not found/not accessible/deleted.
+
+**Report files are stored on ephemeral disk.** The analysis (`payload`) is durable in Postgres; the PDF file is written to local disk and is **not** expected to survive a container restart/redeploy. Unlike the originally-planned contract, this endpoint **self-heals**: if the file is missing on disk, it's transparently re-rendered from the durable `payload` (no GNN/LLM calls needed, so it's cheap) and served — it does not 404. `file_available` in the JSON response is still a fast, honest hint for whether a fetch will be instant or take an extra beat; treat a `false` value as "will still work, might be slightly slower," not as "broken."
+
+### `DELETE /api/v1/reports/{report_id}`
+
+`CLINICIAN` only. **Soft delete** — the row (and its audit trail) is kept with `deleted_at` set; it disappears from list/get/pdf (all 404 afterward) and any future QR access is revoked. The PDF file, if present, is removed from disk immediately.
+
+---
+
 ## Vocabulary / search (`/api/v1/vocab`)
 
 For autocomplete/search UI. Auth required (any role), but not RBAC-scoped — this is non-PHI reference data, not a specific patient's information.
@@ -543,7 +745,7 @@ curl -s -X POST http://localhost:8000/api/v1/predict/pairwise \
 
 - **`drug_disease_flags` is always `[]`.** The query/cross-reference logic is real and wired up; it needs a curated, clinically-reviewed contraindication reference file that doesn't exist yet (see the note under `/predict/regimen` above). This backend will not fabricate that content.
 - **No rate limiting anywhere.** Not implemented; needs an infra decision (in-memory vs. Redis-backed, per-IP vs. per-user limits) before it's built.
-- **No bulk endpoints** (e.g. importing a whole medication history in one call) — ask if you need one; none exist today.
 - **Pagination is now on the list endpoints that can grow** (`GET .../conditions`, `GET .../regimens`, `GET /vocab/drugs`) via `limit`/`offset` query params, but there's no cursor-based pagination or a `total` count in the response — a plain JSON array is returned, so "are there more pages" is inferred from whether you got back exactly `limit` results.
-- **No endpoint to list/search patients** (e.g. "find patient by MRN or name") — `legal_name`/`medical_record_number` are encrypted at rest specifically so they can't be searched/filtered at the DB level; you need a `patient_id` (or the patient's own `user_id`) from somewhere else (e.g. your own patient-lookup flow) to use `GET /api/v1/patients/{patient_id}`.
+- **No patient *search*.** `GET /api/v1/patients` lists a clinician's assigned roster, but there's no server-side search by name or MRN — those columns are encrypted at rest with a non-deterministic cipher and can't be filtered on. Client-side filtering of a fetched page works; a global search needs a blind-index column added first.
+- **No email-change flow.** `PATCH /patients/me` deliberately excludes email, because changing it also changes where consent codes go and needs new-address verification first.
 - **`PatientRegimen` has no link back to `/predict/regimen`.** Adding a regimen via the API doesn't automatically run a prediction — the frontend still needs to separately call `/predict/regimen` with the cart's CIDs (fetched via `GET .../regimens`) if it wants risk scores for a patient's actual saved medication list.

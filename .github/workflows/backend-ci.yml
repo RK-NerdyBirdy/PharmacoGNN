@@ -29,7 +29,13 @@ jobs:
           --health-retries 10
 
     steps:
+      # lfs: true is required -- backend/weights/*.pt and *.pth are Git LFS
+      # pointers (see .gitattributes); a plain checkout leaves ~130-byte
+      # pointer stubs in place of the real tensors, and gnn_engine.initialize()
+      # fails to unpickle them, taking every test down with it.
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - uses: actions/setup-python@v5
         with:

@@ -91,6 +91,50 @@ class Settings(BaseSettings):
     RATE_LIMIT_DEFAULT: str = "60/minute"
     RATE_LIMIT_AUTH: str = "20/minute"
 
+    # --- Phase B: email + patient onboarding ---
+    # Where invite/consent links point. Must be the FRONTEND origin, not the
+    # API's -- the link opens a page, which then calls the API.
+    APP_BASE_URL: str = "http://localhost:3000"
+
+    # "smtp" talks to a real server (MailHog in dev); "memory" captures
+    # messages in-process for tests to assert on; "console" just logs them.
+    EMAIL_BACKEND: str = "smtp"
+    SMTP_HOST: str = "localhost"
+    SMTP_PORT: int = 1025  # MailHog's default; 587 for most real providers
+    SMTP_USERNAME: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_START_TLS: bool = False  # MailHog speaks plaintext; real SMTP wants True
+    SMTP_TIMEOUT_SECONDS: float = 10.0
+    EMAIL_FROM: str = "no-reply@pharmacognn.local"
+    EMAIL_FROM_NAME: str = "PharmacoGNN"
+
+    # Invite links are single-use and expire. 72h gives a patient a long
+    # weekend to act without leaving a credential-equivalent lying around
+    # indefinitely.
+    INVITE_TOKEN_TTL_HOURS: int = 72
+
+    # --- Phase D: interaction reports ---
+    # A report's analysis (payload JSONB) lives durably in Postgres; the
+    # rendered PDF is written here, to local disk, and is NOT expected to
+    # survive a container restart/redeploy. api/v1/reports.py treats a
+    # missing-on-disk PDF as routine and regenerates it on demand from the
+    # durable payload rather than treating it as an error.
+    REPORTS_DIR: Path = BACKEND_DIR / "report_files"
+    # Explaining every high-risk pair costs one LLM call each; this bounds
+    # worst-case generation time/cost for a patient with an unusually large
+    # regimen and many flagged pairs.
+    REPORT_MAX_EXPLANATIONS: int = 10
+
+    # --- Phase F: clinician-to-clinician transfer (patient OTP consent) ---
+    # The receiving clinician never has to accept and the sender never loses
+    # access -- consent just adds a second active PatientAssignment. Only the
+    # patient's typed OTP gates it.
+    TRANSFER_OTP_TTL_MINUTES: int = 10
+    TRANSFER_OTP_MAX_ATTEMPTS: int = 5
+    # Stricter than RATE_LIMIT_AUTH: resend is patient-initiated and cheap to
+    # spam-click, and each resend is a real email send.
+    RATE_LIMIT_OTP_RESEND: str = "3/hour"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]

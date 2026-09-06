@@ -5,7 +5,7 @@ import enum
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Date, Enum, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Integer, String, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,6 +13,8 @@ from app.db.base import Base, EncryptedString, EncryptedText, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.audit import AuditLog
+    from app.models.report import InteractionReport
+    from app.models.transfer import PatientTransfer
     from app.models.user import User
 
 
@@ -59,13 +61,84 @@ class PatientProfile(TimestampMixin, Base):
     age: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
 
     user: Mapped["User"] = relationship(back_populates="patient_profile")
+    assignments: Mapped[list["PatientAssignment"]] = relationship(
+        back_populates="patient", cascade="all, delete-orphan"
+    )
     conditions: Mapped[list["PatientCondition"]] = relationship(
         back_populates="patient", cascade="all, delete-orphan"
     )
     regimens: Mapped[list["PatientRegimen"]] = relationship(
         back_populates="patient", cascade="all, delete-orphan"
     )
+    reports: Mapped[list["InteractionReport"]] = relationship(
+        back_populates="patient", cascade="all, delete-orphan"
+    )
+    transfers: Mapped[list["PatientTransfer"]] = relationship(
+        back_populates="patient", cascade="all, delete-orphan"
+    )
     audit_logs: Mapped[list["AuditLog"]] = relationship(back_populates="target_patient")
+
+
+class PatientAssignment(TimestampMixin, Base):
+    """Which clinician(s) currently have authority over a patient.
+
+    Access to a patient is granted by an active row here -- NOT by holding the
+    CLINICIAN role. A clinician with no active assignment to a patient cannot
+    see that patient at all (and gets a 404, not a 403, so the API doesn't
+    leak that the patient exists).
+
+    Multiple active assignments per patient are legal by design: a transfer
+    grants the receiving clinician access without immediately revoking the
+    sending clinician's, so both hold access during the handover window.
+    Exactly one active assignment per patient is is_primary.
+
+    Rows are ended (ended_at set), never deleted, so "who was entitled to see
+    this record on date X" stays answerable after a transfer.
+    """
+
+    __tablename__ = "patient_assignments"
+    __table_args__ = (
+        # At most one live assignment per (patient, clinician) pair.
+        Index(
+            "uq_patient_assignments_active_pair",
+            "patient_id",
+            "clinician_id",
+            unique=True,
+            postgresql_where=text("ended_at IS NULL"),
+        ),
+        # At most one live *primary* clinician per patient.
+        Index(
+            "uq_patient_assignments_active_primary",
+            "patient_id",
+            unique=True,
+            postgresql_where=text("ended_at IS NULL AND is_primary"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    patient_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("patient_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    clinician_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    assigned_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    ended_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    ended_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    patient: Mapped["PatientProfile"] = relationship(back_populates="assignments")
+    clinician: Mapped["User"] = relationship(foreign_keys=[clinician_id])
 
 
 class PatientCondition(TimestampMixin, Base):
@@ -100,6 +173,10 @@ class PatientRegimen(TimestampMixin, Base):
     end_date IS NULL means the medication is currently active; Phase 2's
     regimen-matrix endpoint operates over the set of rows where end_date is
     null (or in the future).
+
+    Discontinuing (PATCH .../regimens/{id} with end_date) is the normal way
+    a medication stops -- it preserves history. Hard-deleting the row is a
+    separate, narrower operation for correcting data-entry mistakes only.
     """
 
     __tablename__ = "patient_regimens"
@@ -111,7 +188,13 @@ class PatientRegimen(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    pubchem_cid: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    # Stored in the exact "CID" + 9-digit zero-padded form used as keys in
+    # gnn_engine.DRUG2IDX (e.g. "CID000002244"), NOT a bare integer -- a row
+    # here has to be usable as /predict/regimen input with zero conversion.
+    # Every write path (manual add, prescription import) resolves through
+    # services/drug_resolution.py to guarantee that; nothing writes an
+    # unvalidated CID.
+    pubchem_cid: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     drug_name: Mapped[str] = mapped_column(String(255), nullable=False)
     dosage: Mapped[str | None] = mapped_column(String(128), nullable=True)
     start_date: Mapped[dt.date] = mapped_column(Date, nullable=False)
@@ -121,6 +204,17 @@ class PatientRegimen(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
+    )
+    # Free text: who actually wrote the prescription, when that's someone
+    # outside this system. Distinct from prescriber_id, which stays the
+    # accountable system user (who entered this row), and is never displayed
+    # as if it were the origin of an externally-written prescription.
+    external_prescriber_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Shared by every row created from the same POST .../prescriptions call,
+    # so "everything from this one prescription" stays answerable. NULL for
+    # rows added via the single-drug manual-add endpoint.
+    import_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
     )
 
     patient: Mapped["PatientProfile"] = relationship(back_populates="regimens")
