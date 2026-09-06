@@ -180,7 +180,7 @@ def test_patient_cannot_add_own_condition_or_regimen(client, patient):
     r = client.post(
         f"/api/v1/patients/{patient_id}/regimens",
         headers=patient["headers"],
-        json={"pubchem_cid": 85, "drug_name": "Self-prescribed", "start_date": "2024-01-01"},
+        json={"pubchem_cid": "CID000000085", "drug_name": "Self-prescribed", "start_date": "2024-01-01"},
     )
     assert r.status_code == 403
 
@@ -236,7 +236,12 @@ def test_regimen_lifecycle(client, clinician_headers, patient):
     r = client.post(
         f"/api/v1/patients/{patient_id}/regimens",
         headers=clinician_headers,
-        json={"pubchem_cid": 85, "drug_name": "Test Drug", "dosage": "10mg BID", "start_date": "2024-01-01"},
+        json={
+            "pubchem_cid": "CID000000085",
+            "drug_name": "Test Drug",
+            "dosage": "10mg BID",
+            "start_date": "2024-01-01",
+        },
     )
     assert r.status_code == 201
     regimen = r.json()

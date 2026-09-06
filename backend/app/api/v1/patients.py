@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Annotated
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
@@ -28,7 +28,13 @@ from app.schemas.patient import (
     PatientRegimenUpdate,
     PatientSelfUpdate,
 )
+from app.schemas.prescription import (
+    PrescriptionCreate,
+    PrescriptionImportResponse,
+    UnresolvedPrescriptionItem,
+)
 from app.services import invitations
+from app.services.drug_resolution import resolve_drug
 from app.services.patient_access import (
     assign_clinician,
     list_active_assignments,
@@ -400,9 +406,27 @@ async def add_regimen(
     current_user: Annotated[User, Depends(require_role(UserRole.CLINICIAN))],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> PatientRegimen:
+    """Add one drug. Same resolution rule as prescription import: an
+    unresolvable drug is rejected outright (422), never stored as-is --
+    there's no "unresolved" list to report into here since it's a single item.
+    """
     await load_accessible_patient(patient_id, current_user, db)
 
-    regimen = PatientRegimen(patient_id=patient_id, prescriber_id=current_user.id, **payload.model_dump())
+    resolution = resolve_drug(payload.drug_name, payload.pubchem_cid)
+    if not resolution.resolved:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Could not resolve drug '{payload.drug_name}': {resolution.reason}",
+        )
+
+    regimen = PatientRegimen(
+        patient_id=patient_id,
+        prescriber_id=current_user.id,
+        pubchem_cid=resolution.cid,
+        drug_name=resolution.name,
+        dosage=payload.dosage,
+        start_date=payload.start_date,
+    )
     db.add(regimen)
     await db.flush()
     db.add(_audit(current_user, patient_id, AuditActionType.CREATE, "PatientRegimen", request))
@@ -454,3 +478,103 @@ async def update_regimen(
     await db.commit()
     await db.refresh(regimen)
     return regimen
+
+
+@router.delete("/{patient_id}/regimens/{regimen_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_regimen(
+    patient_id: UUID,
+    regimen_id: UUID,
+    request: Request,
+    current_user: Annotated[User, Depends(require_role(UserRole.CLINICIAN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    """Hard delete -- erases the row. For correcting a data-entry mistake only.
+
+    To stop a medication that was genuinely taken, PATCH end_date instead:
+    that preserves history, which is what "discontinued" should mean for a
+    medical record. This endpoint exists for "this was entered in error and
+    should never have existed", which is a different, rarer operation and
+    deliberately looks different in the API (DELETE vs PATCH) so a client
+    can't reach for it by habit.
+    """
+    await load_accessible_patient(patient_id, current_user, db)
+
+    regimen = await db.get(PatientRegimen, regimen_id)
+    if regimen is None or regimen.patient_id != patient_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Regimen not found")
+
+    db.add(_audit(current_user, patient_id, AuditActionType.DELETE, "PatientRegimen", request))
+    await db.delete(regimen)
+    await db.commit()
+
+
+# --- Prescriptions (structured multi-drug import) ----------------------------
+
+
+@router.post(
+    "/{patient_id}/prescriptions",
+    response_model=PrescriptionImportResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def import_prescription(
+    patient_id: UUID,
+    payload: PrescriptionCreate,
+    request: Request,
+    current_user: Annotated[User, Depends(require_role(UserRole.CLINICIAN))],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PrescriptionImportResponse:
+    """Create regimen rows from a structured prescription in one call.
+
+    Every item is resolved against the model's vocabulary before anything is
+    written. With allow_partial=False (the default), any single unresolved
+    item aborts the whole import -- committing the resolvable ones anyway
+    would leave a regimen record that looks complete but silently omits a
+    drug the model can't score, which makes every future interaction report
+    on this patient falsely reassuring. allow_partial=True accepts that
+    trade-off explicitly when the caller has a reason to.
+    """
+    await load_accessible_patient(patient_id, current_user, db)
+
+    resolutions = [(item, resolve_drug(item.drug_name, item.pubchem_cid)) for item in payload.items]
+    unresolved = [
+        UnresolvedPrescriptionItem(
+            drug_name=item.drug_name, pubchem_cid=item.pubchem_cid, reason=resolution.reason
+        )
+        for item, resolution in resolutions
+        if not resolution.resolved
+    ]
+    resolved = [(item, resolution) for item, resolution in resolutions if resolution.resolved]
+
+    if unresolved and not payload.allow_partial:
+        return PrescriptionImportResponse(created=[], unresolved=unresolved, committed=False)
+
+    batch_id = uuid4()
+    rows = [
+        PatientRegimen(
+            patient_id=patient_id,
+            prescriber_id=current_user.id,
+            pubchem_cid=resolution.cid,
+            drug_name=resolution.name,
+            dosage=item.dosage,
+            start_date=item.start_date,
+            end_date=item.end_date,
+            external_prescriber_name=payload.prescriber_name,
+            import_batch_id=batch_id,
+        )
+        for item, resolution in resolved
+    ]
+    for row in rows:
+        db.add(row)
+
+    if rows:
+        await db.flush()
+        db.add(_audit(current_user, patient_id, AuditActionType.CREATE, "PatientRegimen", request))
+        await db.commit()
+        for row in rows:
+            await db.refresh(row)
+
+    return PrescriptionImportResponse(
+        created=[PatientRegimenRead.model_validate(row) for row in rows],
+        unresolved=unresolved,
+        committed=bool(rows),
+    )

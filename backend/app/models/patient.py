@@ -165,6 +165,10 @@ class PatientRegimen(TimestampMixin, Base):
     end_date IS NULL means the medication is currently active; Phase 2's
     regimen-matrix endpoint operates over the set of rows where end_date is
     null (or in the future).
+
+    Discontinuing (PATCH .../regimens/{id} with end_date) is the normal way
+    a medication stops -- it preserves history. Hard-deleting the row is a
+    separate, narrower operation for correcting data-entry mistakes only.
     """
 
     __tablename__ = "patient_regimens"
@@ -176,7 +180,13 @@ class PatientRegimen(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    pubchem_cid: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    # Stored in the exact "CID" + 9-digit zero-padded form used as keys in
+    # gnn_engine.DRUG2IDX (e.g. "CID000002244"), NOT a bare integer -- a row
+    # here has to be usable as /predict/regimen input with zero conversion.
+    # Every write path (manual add, prescription import) resolves through
+    # services/drug_resolution.py to guarantee that; nothing writes an
+    # unvalidated CID.
+    pubchem_cid: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     drug_name: Mapped[str] = mapped_column(String(255), nullable=False)
     dosage: Mapped[str | None] = mapped_column(String(128), nullable=True)
     start_date: Mapped[dt.date] = mapped_column(Date, nullable=False)
@@ -186,6 +196,17 @@ class PatientRegimen(TimestampMixin, Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
+    )
+    # Free text: who actually wrote the prescription, when that's someone
+    # outside this system. Distinct from prescriber_id, which stays the
+    # accountable system user (who entered this row), and is never displayed
+    # as if it were the origin of an externally-written prescription.
+    external_prescriber_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Shared by every row created from the same POST .../prescriptions call,
+    # so "everything from this one prescription" stays answerable. NULL for
+    # rows added via the single-drug manual-add endpoint.
+    import_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
     )
 
     patient: Mapped["PatientProfile"] = relationship(back_populates="regimens")

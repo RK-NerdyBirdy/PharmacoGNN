@@ -130,7 +130,16 @@ class PatientConditionRead(BaseModel):
 
 
 class PatientRegimenCreate(BaseModel):
-    pubchem_cid: int
+    """drug_name is always required; pubchem_cid is an optional shortcut.
+
+    If pubchem_cid is given it's authoritative and must be a real,
+    in-vocabulary CID (validated by services/drug_resolution.py, not by this
+    schema) -- if it isn't, or if it's omitted and drug_name doesn't match
+    anything, the endpoint returns 422 rather than storing an unresolvable
+    drug.
+    """
+
+    pubchem_cid: str | None = Field(default=None, max_length=20)
     drug_name: str = Field(min_length=1, max_length=255)
     dosage: str | None = Field(default=None, max_length=128)
     start_date: dt.date
@@ -146,9 +155,11 @@ class PatientRegimenRead(BaseModel):
 
     id: UUID
     patient_id: UUID
-    pubchem_cid: int
+    pubchem_cid: str
     drug_name: str
     dosage: str | None
     start_date: dt.date
     end_date: dt.date | None
     prescriber_id: UUID | None
+    external_prescriber_name: str | None
+    import_batch_id: UUID | None
