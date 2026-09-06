@@ -1355,10 +1355,27 @@
    dozens of equal-specificity, append-order-dependent selectors under active
    edit, and containment must always win regardless of what lands above it. */
 .screen-overview #matrixCard .matrix-wrap {
-  width: auto !important;
+  /* Must fill the card (not shrink to the table's content) — otherwise
+     there's no leftover space left for the table to be centered within. */
+  width: 100% !important;
   max-width: 100% !important;
-  overflow-x: auto !important;
+  /* No scrollbar, ever — workspace.js's shrink-to-fit is now the sole
+     containment mechanism (cells shrink down to MATRIX_MIN_CELL before
+     anything could overflow), so any residual sub-pixel overshoot is
+     clipped silently instead of showing a scrollbar. */
+  overflow-x: hidden !important;
+  /* An earlier rule in the cascade above (tuned for the fixed 4-medicine
+     demo state) still applies transform:translateX(-78px) here, which
+     shifted the grid's left edge out past its own card and into the
+     medicines panel once the grid was no longer artificially narrow. */
+  transform: none !important;
+  margin-left: 0 !important;
 }
+/* Width and centering margins for .interaction-matrix are set inline by
+   workspace.js's applyMatrixScale — margin:auto here didn't reliably
+   resolve to centering against this <table> (computed to 0/0 regardless of
+   a definite width being set, an engine quirk with auto-margin resolution
+   on table boxes), so explicit computed pixel margins are used instead. */
 .screen-overview #matrixCard,
 .screen-overview .workspace-grid > * {
   min-width: 0;
@@ -1369,6 +1386,10 @@
    fits before horizontal scrolling is needed. */
 .screen-overview #matrixCard .interaction-matrix tbody td {
   height: var(--matrix-cell-size, 78px) !important;
+  /* Both needed: a plain .interaction-matrix td{width:52px} rule elsewhere
+     still applies otherwise, and an explicit width always wins over a
+     smaller min-width rather than being floored by it. */
+  width: var(--matrix-cell-size, 78px) !important;
   min-width: var(--matrix-cell-size, 78px) !important;
 }
 .screen-overview #matrixCard .interaction-matrix td button,

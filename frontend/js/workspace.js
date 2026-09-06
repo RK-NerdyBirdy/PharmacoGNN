@@ -14,28 +14,61 @@ UI.text('matrixNote','Select a pair to inspect its model evidence.');UI.text('ma
 UI.text('exploreTitle','Explore a change');UI.text('exploreText','');UI.text('findAlternativesBtn','Find alternatives →');
 document.getElementById('matrixLegend').innerHTML=['priority','review','lower','unknown'].map(k=>'<span class="legend-chip legend-'+k+'">'+k[0].toUpperCase()+k.slice(1)+'</span>').join('');
 // Shrinks the interaction matrix's cell size/font as the regimen grows, via
-// CSS custom properties consumed in css/workspace.css, so a bigger NxN grid
-// fits more before the matrix needs to scroll sideways.
-const MATRIX_SCALE_STEPS = [
-  { max: 4, cell: 78, font: 16 },
-  { max: 6, cell: 60, font: 14 },
-  { max: 8, cell: 48, font: 13 },
-  { max: 10, cell: 40, font: 12 },
-  { max: Infinity, cell: 32, font: 11 },
-];
-function applyMatrixScale(medicineCount) {
-  const step = MATRIX_SCALE_STEPS.find((s) => medicineCount <= s.max);
+// CSS custom properties consumed in css/workspace.css. Measures the card's
+// actually-available width (minus a fixed side margin, kept centered) against
+// the table's natural (max-size) width, rather than guessing from medicine
+// count. Shrinking — not scrolling — is the primary way this stays contained;
+// overflow-x:auto on .matrix-wrap only ever engages as a last-resort safety
+// net if cells have already hit MATRIX_MIN_CELL and it still doesn't fit.
+const MATRIX_SIDE_MARGIN = 16; // px, each side — also set as --matrix-side-margin
+const MATRIX_MAX_CELL = 78, MATRIX_MIN_CELL = 18;
+const MATRIX_MAX_FONT = 16, MATRIX_MIN_FONT = 9;
+function applyMatrixScale() {
   const card = document.getElementById('matrixCard');
-  if (!card) return;
-  card.style.setProperty('--matrix-cell-size', step.cell + 'px');
-  card.style.setProperty('--matrix-font-size', step.font + 'px');
+  const table = document.getElementById('interactionMatrix');
+  if (!card || !table) return;
+
+  // Measure against the natural/max size first, not whatever scale was left
+  // from the previous render — otherwise a shrink can never recover once a
+  // medicine is later removed.
+  card.style.setProperty('--matrix-cell-size', MATRIX_MAX_CELL + 'px');
+  card.style.setProperty('--matrix-font-size', MATRIX_MAX_FONT + 'px');
+  // max-content (not '') for measuring: clearing the inline width falls
+  // back to the base .interaction-matrix{width:100%} rule, which would
+  // measure the stretched width instead of the table's true content size.
+  table.style.setProperty('width', 'max-content', 'important');
+
+  const available = card.clientWidth - MATRIX_SIDE_MARGIN * 2;
+  let needed = table.scrollWidth;
+
+  if (needed > available && available > 0) {
+    // border-spacing doesn't shrink along with the cells, so scaling purely
+    // by width ratio can slightly overshoot; a small safety margin avoids
+    // landing just barely over the line into a scrollbar anyway.
+    const scale = Math.max((available / needed) * 0.92, MATRIX_MIN_CELL / MATRIX_MAX_CELL);
+    card.style.setProperty('--matrix-cell-size', Math.round(MATRIX_MAX_CELL * scale) + 'px');
+    card.style.setProperty('--matrix-font-size', Math.max(MATRIX_MIN_FONT, Math.round(MATRIX_MAX_FONT * scale)) + 'px');
+    needed = table.scrollWidth;
+  }
+
+  table.style.setProperty('width', needed + 'px', 'important');
+
+  // CSS margin:0 auto on this <table> didn't reliably resolve to centering
+  // in testing (computed to 0/0 regardless of a definite width being set —
+  // an engine quirk specific to auto-margin resolution on table boxes here),
+  // so the side margins are computed and set explicitly instead.
+  const wrap = card.querySelector('.matrix-wrap');
+  const sideMargin = Math.max(0, Math.round((wrap.clientWidth - needed) / 2));
+  table.style.setProperty('margin-left', sideMargin + 'px', 'important');
+  table.style.setProperty('margin-right', sideMargin + 'px', 'important');
 }
+window.addEventListener('resize', () => requestAnimationFrame(applyMatrixScale));
 
 function render(){const s=PharmaStore.getState(),e=UI.escape;
   document.getElementById('contextBar').innerHTML='<span class="context-title">Patient Information</span><span class="pill pill-muted">Age '+s.context.age+'</span><span class="pill pill-muted">'+e(s.context.sex)+'</span><a class="btn btn-edit" href="demographic-lens.html" aria-label="Edit patient information">✎</a>';
   document.getElementById('medicineList').innerHTML=s.medicines.map((m,i)=>'<li class="medicine-item"><span class="medicine-badge">'+String.fromCharCode(65+i)+'</span><span class="medicine-info"><span class="medicine-name">'+e(m.name)+'</span><br><span class="medicine-detail">'+e(m.dose||'Dose not entered')+'</span></span>'+(PUBCHEM_CID_BY_MEDICINE_ID[m.id]?'<button class="medicine-view3d" type="button" data-view3d="'+e(m.id)+'" data-name="'+e(m.name)+'">View 3D</button>':'')+'<button class="medicine-remove" data-remove="'+e(m.id)+'" aria-label="Remove '+e(m.name)+'">×</button></li>').join('')||'<li class="empty-state">Your regimen is empty. Add medicines to begin.</li>';
   document.getElementById('interactionMatrix').innerHTML=UI.matrix(s,true);UI.text('matrixLegendLabels',UI.key(s.medicines));
-  applyMatrixScale(s.medicines.length);
+  applyMatrixScale();
   const pair=UI.pair(),value=pair.length===2?PharmaStore.score(...s.selectedPair):null,kind=PharmaDemo.classifyScore(value);
   UI.text('reviewTitle',pair.length===2?pair.map(m=>m.name).join(' + '):'Select a pair');UI.text('reviewNote','');
   UI.text('priorityPill',pair.length<2?'ADD MEDICINES':kind==='priority'?'HIGH PRIORITY':kind.toUpperCase());document.getElementById('priorityPill').dataset.kind=kind;

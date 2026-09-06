@@ -78,9 +78,8 @@ class Settings(BaseSettings):
     # --- CORS ---
     # Comma-separated allow-list (not a JSON list) so a plain .env/docker-compose
     # env var is easy to edit: CORS_ORIGINS=http://localhost:3000,http://localhost:5173
-    # Includes the frontend's actual local dev port (live-server, see
-    # frontend/package.json) alongside the originally planned one.
-    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8420,http://127.0.0.1:8420"
+    # Defaults to the frontend's planned local dev port.
+    CORS_ORIGINS: str = "http://localhost:3000"
 
     # --- Rate limiting ---
     # In-memory (per-process) limiter -- fine for a single instance; a
