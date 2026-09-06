@@ -190,7 +190,7 @@ document.getElementById('medicineList').onclick=e=>{
   const view3d=e.target.closest('[data-view3d]');
   if(view3d)window.openMoleculeViewer(getMedicineCid(view3d.dataset.view3d),view3d.dataset.name);
 };
-document.getElementById('interactionMatrix').onclick=e=>{const b=e.target.closest('[data-a]');if(b){PharmaStore.selectPair(b.dataset.a,b.dataset.b);const pair=UI.pair(),value=PharmaStore.score(...PharmaStore.getState().selectedPair);renderReviewCard(pair,value);UI.announce('Selected '+pair.map(m=>m.name).join(' and '));}};
+document.getElementById('interactionMatrix').onclick=e=>{const b=e.target.closest('[data-a]');if(b){PharmaStore.selectPair(b.dataset.a,b.dataset.b);const pair=UI.pair(),shownScore=Number(b.textContent.trim()),value=Number.isFinite(shownScore)&&b.textContent.trim()!==''?shownScore:PharmaStore.score(...PharmaStore.getState().selectedPair);renderReviewCard(pair,value);UI.announce('Selected '+pair.map(m=>m.name).join(' and '));}};
 document.getElementById('inspectPathwayBtn').onclick=()=>UI.go('pathway-inspector');document.getElementById('findAlternativesBtn').onclick=()=>UI.go('substitution-engine');
 const drugGraphBtn=document.getElementById('viewDrugGraphBtn');if(drugGraphBtn)drugGraphBtn.onclick=()=>window.openDrugGraph();
 
