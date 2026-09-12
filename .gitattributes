@@ -1,2 +1,5 @@
+# Model artifacts are tracked via Git LFS -- the `-text` here (like the
+# earlier plain `binary` marking it replaces) already prevents the CRLF/LF
+# normalization that silently corrupted these files on Windows before.
 *.pt filter=lfs diff=lfs merge=lfs -text
 *.pth filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PharmaGNN Workspace — Demographic lens</title>
+<link rel="stylesheet" href="../css/styles.css" />
+<link rel="stylesheet" href="../css/workspace.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body class="workspace-body screen-lens">
+
+<div class="workspace-shell">
+
+  <aside class="workspace-sidebar">
+    <div class="brand">
+      <span class="brand-toggle"><span class="brand-toggle-dot"></span></span>
+      <span class="brand-name">PharmaGNN</span>
+    </div>
+    <div class="sidebar-label">Clinical workspace</div>
+    <nav class="sidebar-nav" id="sidebarNav"></nav>
+    <div class="sidebar-callout">
+      <p class="sidebar-callout-title"></p>
+      <p class="sidebar-callout-text"></p>
+    </div>
+    <a class="sidebar-footer-link" href="../index.html">&larr; Research demo</a>
+  </aside>
+
+  <div class="workspace-main">
+
+    <header class="workspace-topbar">
+      <div class="topbar-right">
+        <div class="avatar" id="userAvatar"></div>
+      </div>
+    </header>
+
+    <main class="workspace-content">
+      <h1 class="workspace-heading" id="pageHeading"></h1>
+      <p class="workspace-subhead" id="pageSubhead"></p>
+
+      <section class="lens-grid">
+        <article class="ws-card lens-context-card">
+          <header class="ws-card-header">
+            <h2>Patient Information</h2>
+            <p class="ws-card-note" id="contextSubtitle"></p>
+          </header>
+
+          <label class="field-label" for="ageField">Age</label>
+          <div class="field-box" id="ageField"></div>
+
+          <label class="field-label">Sex / Gender</label>
+          <div class="stratum-list" id="stratumList"></div>
+
+          <p class="field-note" id="stratumNote"></p>
+
+          <div class="toggle-row">
+            <span class="toggle-label" id="toggleLabel"></span>
+            <button class="toggle-switch on" id="stratifyToggle" type="button" role="switch" aria-checked="true">
+              <span class="toggle-knob"></span>
+            </button>
+          </div>
+          <p class="field-note" id="toggleNote"></p>
+
+          <button class="btn btn-primary ws-btn-block" id="updateComparisonBtn" type="button"></button>
+        </article>
+
+        <div class="lens-right-stack">
+          <article class="ws-card">
+            <header class="ws-card-header">
+              <h2>Context changes the estimate</h2>
+              <p class="ws-card-note" id="comparisonSubtitle"></p>
+            </header>
+            <div class="estimate-row" id="estimateRow"></div>
+            <p class="ws-card-footnote" id="estimateFootnote"></p>
+          </article>
+
+          <article class="ws-card">
+            <header class="ws-card-header">
+              <h2>Evidence coverage</h2>
+              <p class="ws-card-note" id="coverageSubtitle"></p>
+            </header>
+            <dl class="coverage-list" id="coverageList"></dl>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="workspace-footer">
+      <span id="footerLeft"></span>
+      <span id="footerRight"></span>
+    </footer>
+
+  </div>
+</div>
+
+<script src="../js/api-client.js"></script>
+<script src="../js/logout-flow.js"></script>
+<script src="../js/auth-guard.js"></script>
+<script src="../js/demo-store.js"></script>
+<script src="../js/preferences.js"></script>
+<script src="../js/workspace-shared.js"></script>
+<script src="../js/demographic-lens.js"></script>
+</body>
+</html>
