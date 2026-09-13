@@ -2,7 +2,7 @@
 
 Written for the frontend team building against the PharmacoGNN backend. Covers every user flow, the endpoints behind it, and the states the UI has to handle.
 
-> **Read this first — build status.** Auth, patient management, the interaction workbench, prescription/regimen management, and reports are live; QR and transfers are not built yet. Every section is tagged:
+> **Read this first — build status.** Every flow in this document is now live. Every section is tagged:
 >
 > - 🟢 **LIVE** — built, tested, callable today
 > - 🟡 **CHANGING** — exists today but its behavior/permissions are about to change; don't build against current behavior
@@ -32,7 +32,7 @@ A patient can never write medical data. This is a regulatory constraint, not a p
 
 Being a clinician doesn't grant access to a patient. Access comes from an **assignment** between that specific clinician and that specific patient. A clinician sees only their assigned patients.
 
-After a transfer (§9), a patient can have **more than one** clinician assigned at once — the original keeps access for a grace period. Build the "who has access" view accordingly; don't assume one.
+After a transfer (§10), a patient can have **more than one** clinician assigned at once — indefinitely, not for a grace period; the original clinician's access is never automatically removed by a transfer. Build the "who has access" view accordingly; don't assume one.
 
 ### 404 means "not found *or* not yours"
 
@@ -307,7 +307,7 @@ Generation runs several LLM calls, so it's slow (seconds to a minute+). **Poll e
 |---|---|
 | `GET /api/v1/patients/{id}/reports` | List (paginated) — build a report history view |
 | `GET /api/v1/reports/{id}/pdf` | PDF download |
-| `GET /api/v1/reports/{id}/qr` | PNG QR image (§9, still planned) |
+| `GET /api/v1/reports/{id}/qr` | PNG QR image (§9) |
 | `DELETE /api/v1/reports/{id}` | Soft-delete; revokes QR access too |
 
 ### Report files are stored on ephemeral disk — but this is handled for you
@@ -320,9 +320,9 @@ Unlike the originally-planned contract, `GET /api/v1/reports/{id}/pdf` now **sel
 
 ---
 
-## 9. Flow — QR access 🔴
+## 9. Flow — QR access 🟢
 
-The QR encodes a URL to **your frontend**: `{FRONTEND_BASE_URL}/reports/{report_id}`
+The QR encodes a URL to **your frontend**: `{APP_BASE_URL}/reports/{report_id}` (`APP_BASE_URL` is the same setting that already builds invite links in §3/§4 — there's no separate QR-specific base URL).
 
 It carries **no credential**. Scanning it grants nothing by itself — the person still has to be logged in as the patient or an assigned clinician. A photographed QR is harmless.
 
@@ -340,11 +340,9 @@ Getting the `returnTo` round-trip right is the whole UX of this feature — a sc
 
 Display: fetch `GET /api/v1/reports/{id}/qr` as an image (`<img src>` with the auth header, or fetch → blob URL). Offer print/download — the realistic use is a printed sheet a patient carries.
 
-> Backend needs `FRONTEND_BASE_URL` configured to build correct QR links. Tell us your deployed origin.
-
 ---
 
-## 10. Flow — Transfer to another clinician 🔴
+## 10. Flow — Transfer to another clinician 🟢
 
 Moves/shares a patient with another clinician, gated on the **patient's** consent via emailed OTP.
 
@@ -356,7 +354,7 @@ Patient    → sees pending request
               status: approved; clinician B assigned
 ```
 
-Per the agreed design: **B does not have to accept**, and **A does not lose access immediately** (grace period). So post-transfer the patient has two assigned clinicians. Reflect that in the UI.
+Per the agreed design: **B does not have to accept**, and **A does not lose access at all** — this isn't a time-limited grace period, consent just adds a second, permanently-simultaneous active assignment. So post-transfer the patient has two assigned clinicians indefinitely, until someone is separately unassigned through another flow. Reflect that in the UI (e.g. don't imply A's access will expire).
 
 | Endpoint | Actor |
 |---|---|
@@ -380,8 +378,9 @@ Per the agreed design: **B does not have to accept**, and **A does not lose acce
 
 **OTP UI rules** (the server enforces all of these — mirror them):
 - 6 digits, **10-minute expiry** — show a live countdown.
-- **5 attempts**, then the request locks (`status: "locked"`). Show `attempts_remaining` after each failure.
+- **5 attempts**, then the request locks (`status: "locked"`). Show `attempts_remaining` after each failure (it's in the `400` error body: `{"message": "Incorrect code", "attempts_remaining": 3}`).
 - Wrong OTP → `400`. Expired → `410`. Locked → `423`. Distinct messaging for each.
+- **Resend also un-locks** a `locked` transfer — it issues a fresh code and a fresh 5-attempt budget, resetting `status` back to `pending_patient_consent`. So a locked-out patient still uses the same "resend code" button, not a whole new transfer.
 - Resend is rate-limited harder than normal endpoints — disable the button with a cooldown timer rather than letting them hit `429`.
 - Only **one pending transfer per patient**; initiating a second returns `409`.
 
@@ -389,7 +388,7 @@ Per the agreed design: **B does not have to accept**, and **A does not lose acce
 
 ### Who has access 🟢
 
-**`GET /api/v1/patients/{id}/access`** → current assignments (this endpoint is live now; the *transfer* flow that produces multiple entries is not):
+**`GET /api/v1/patients/{id}/access`** → current assignments — will show two clinicians after a completed transfer:
 ```json
 [ { "clinician": {"id":"...","email":"..."}, "is_primary": true,
     "assigned_at": "...", "expires_at": null } ]
@@ -436,9 +435,9 @@ Powers a "who can see my record" view for patients and a care-team view for clin
 
 ## 14. What to build now vs. mock
 
-**Buildable against live endpoints today:** login/refresh/session, drug autocomplete, the entire interaction workbench (pairwise / regimen matrix / substitution / explanation), health-and-degraded-banner, **the clinician patient roster, patient detail (profile/conditions/regimens), patient self-edit, the who-has-access view, prescription import, manual regimen add/discontinue/delete, and reports (generate/list/get/pdf/delete)**.
+**Buildable against live endpoints today:** everything in this guide — login/refresh/session, drug autocomplete, the entire interaction workbench (pairwise / regimen matrix / substitution / explanation), health-and-degraded-banner, the clinician patient roster, patient detail (profile/conditions/regimens), patient self-edit, the who-has-access view, prescription import, manual regimen add/discontinue/delete, reports (generate/list/get/pdf/delete), the report QR code, and clinician-to-clinician transfer with patient OTP consent.
 
-**Mock against this contract:** QR, transfers.
+**Mock against this contract:** nothing — there's no remaining planned-but-unbuilt flow in this guide.
 
 > **Assignment is now enforced.** A clinician only sees patients they created (or were assigned). During development, create your test patients with the same clinician account you're logged in as, or you'll get `404`s that look like bugs.
 
@@ -448,7 +447,8 @@ Starting with the interaction workbench gets you real data immediately and is th
 
 ## 15. Open items we'll confirm
 
-1. `FRONTEND_BASE_URL` — needed to generate QR links and invite/OTP email links.
-2. Invite-token lifetime (proposing 72h) and OTP lifetime (10 min).
-3. Transfer grace period before the original clinician's access lapses (proposing 7 days, or explicit revoke).
-4. Whether clinician self-signup (`POST /auth/register` with `role: CLINICIAN`) stays open or moves behind admin invite.
+Resolved during implementation (kept here for history): QR/invite/OTP links all use the single existing `APP_BASE_URL` setting, not a separate `FRONTEND_BASE_URL`; invite-token lifetime is 72h and transfer-OTP lifetime is 10 minutes, both as originally proposed; there is no transfer grace period at all — the original clinician's access is never automatically removed.
+
+Still open:
+
+1. Whether clinician self-signup (`POST /auth/register` with `role: CLINICIAN`) stays open or moves behind admin invite.
