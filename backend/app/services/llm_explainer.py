@@ -143,6 +143,14 @@ async def _call_openrouter(client: httpx.AsyncClient, messages: list[dict[str, s
             json=payload,
         )
         response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        # exc's own message is just "400 Bad Request for url ..." -- the
+        # actually-useful detail (e.g. "model X is a rerank model and cannot
+        # be used with the chat/completions endpoint") is in the response
+        # body, which raise_for_status() doesn't include.
+        raise RuntimeError(
+            f"OpenRouter request failed: {exc.response.status_code} {exc.response.text}"
+        ) from exc
     except httpx.HTTPError as exc:
         raise RuntimeError(f"OpenRouter request failed: {exc}") from exc
 

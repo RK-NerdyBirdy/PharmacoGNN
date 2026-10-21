@@ -667,9 +667,83 @@ Streams the rendered PDF (`Content-Type: application/pdf`). **Errors:** `409` if
 
 **Report files are stored on ephemeral disk.** The analysis (`payload`) is durable in Postgres; the PDF file is written to local disk and is **not** expected to survive a container restart/redeploy. Unlike the originally-planned contract, this endpoint **self-heals**: if the file is missing on disk, it's transparently re-rendered from the durable `payload` (no GNN/LLM calls needed, so it's cheap) and served — it does not 404. `file_available` in the JSON response is still a fast, honest hint for whether a fetch will be instant or take an extra beat; treat a `false` value as "will still work, might be slightly slower," not as "broken."
 
+### `GET /api/v1/reports/{report_id}/qr`
+
+🟢 **New.** Returns a PNG (`Content-Type: image/png`) QR code encoding a plain URL to your frontend: `{APP_BASE_URL}/reports/{report_id}` — **not** a capability token, not a signed link, not a bearer credential. Scanning it grants nothing by itself: whoever lands on that URL still has to be logged in as the patient or an assigned clinician when the frontend calls `GET /api/v1/reports/{id}`. A photographed or leaked QR image is harmless on its own.
+
+Same RBAC as every other report endpoint (assignment-scoped, 404-not-403). `404` if the report doesn't exist, is soft-deleted, or isn't accessible to the caller — same as `GET /reports/{id}`.
+
+`APP_BASE_URL` (already used for invite links, see Phase B) must be the **frontend's** deployed origin, not the API's — the QR opens a page, which then calls the API. Configure it per-environment; there's no separate QR-specific base URL setting.
+
+**Your responsibility (deep link + auth round-trip):** a scan lands on `{APP_BASE_URL}/reports/{id}`. If the visitor isn't logged in, save the `returnTo` path, redirect to login, and restore it after — then call `GET /api/v1/reports/{id}` and render on `200`, or show "not found, or you don't have access" on `404`. Getting this round-trip right (not dumping the user on a generic dashboard post-login) is the whole UX of this feature.
+
 ### `DELETE /api/v1/reports/{report_id}`
 
 `CLINICIAN` only. **Soft delete** — the row (and its audit trail) is kept with `deleted_at` set; it disappears from list/get/pdf (all 404 afterward) and any future QR access is revoked. The PDF file, if present, is removed from disk immediately.
+
+---
+
+## Clinician-to-clinician transfer (`/api/v1/patients/{id}/transfers`, `/api/v1/transfers`)
+
+🟢 **New.** Shares a patient with another clinician, gated on the **patient's** consent via an emailed 6-digit OTP. Per the agreed design: **the receiving clinician never has to accept**, and **the initiating clinician never loses access** — a successful consent just adds a second, simultaneous active assignment (same underlying mechanism as `PatientAssignment` from patient management above). "Transfer" names the feature, not the mechanics.
+
+**Transfer object:**
+```json
+{
+  "id": "...", "patient_id": "...",
+  "from_clinician": { "id": "...", "email": "doctor.a@example.com" },
+  "to_clinician":   { "id": "...", "email": "doctor.b@example.com" },
+  "status": "pending_patient_consent",
+  "otp_expires_at": "...", "attempts_remaining": 5,
+  "created_at": "...", "consented_at": null
+}
+```
+`status` is one of `pending_patient_consent | approved | declined | cancelled | locked` (lowercased, same convention as report `status`). The OTP itself is never returned by any endpoint — only `otp_expires_at`/`attempts_remaining` metadata.
+
+### `POST /api/v1/patients/{patient_id}/transfers`
+
+Body: `{ "to_clinician_email": "doctor.b@example.com" }`. Caller must be a clinician **currently assigned** to the patient (same `load_accessible_patient` check as everything else). Generates a 6-digit OTP (10-minute expiry, 5 attempts), emails it to the **patient's** account email, and returns the created transfer with `status: "pending_patient_consent"`.
+
+**Response:** `201`.
+
+**Errors:**
+- `404` "Clinician not found" — `to_clinician_email` doesn't match an active `CLINICIAN` account.
+- `422` — target email is the caller's own.
+- `409` — that clinician already has active access to this patient, or a transfer is already pending for this patient (**only one pending transfer per patient** at a time).
+
+A failed OTP email send does **not** fail this call (matches onboarding's invite-email behavior) — the transfer is still created; use `resend-otp` to retry delivery.
+
+### `GET /api/v1/transfers`
+
+Lists transfers involving the caller (paginated, `limit`/`offset`). A `CLINICIAN` sees transfers where they're either `from_clinician` or `to_clinician`; a `PATIENT` sees transfers for their own record.
+
+### `GET /api/v1/transfers/{transfer_id}`
+
+Visible to **participants only** — the initiating clinician, the receiving clinician, or the patient. `404` (not 403) for anyone else, same disclosure reasoning as elsewhere.
+
+### `POST /api/v1/transfers/{transfer_id}/consent`
+
+`PATIENT` only, and only the patient this specific transfer concerns (`404` for any other patient). Body: `{ "otp": "123456" }`.
+
+**Errors, in the order checked:**
+1. `409` — transfer isn't `pending_patient_consent` (already resolved).
+2. `410` "Code expired" — past `otp_expires_at`.
+3. Wrong code: attempts are decremented first.
+   - Attempts remain → `400` with `{ "message": "Incorrect code", "attempts_remaining": N }`.
+   - Attempts exhausted → status becomes `locked`, response is `423`.
+4. Correct code → status becomes `approved`, `consented_at` set, and the receiving clinician gets a new active `PatientAssignment` (`is_primary: false`) — the initiating clinician's assignment is untouched.
+
+### `POST /api/v1/transfers/{transfer_id}/decline`
+
+`PATIENT` only (this transfer's patient). Valid from `pending_patient_consent` or `locked` → `declined`. `409` if already in a terminal state (`approved`/`declined`/`cancelled`).
+
+### `POST /api/v1/transfers/{transfer_id}/cancel`
+
+Only the **initiating** clinician (`from_clinician`). The receiving clinician hitting this gets `403` (they're a legitimate participant per `GET`, just not authorized for this specific action); a non-participant gets `404`. Valid from `pending_patient_consent` or `locked` → `cancelled`. `409` if already terminal.
+
+### `POST /api/v1/transfers/{transfer_id}/resend-otp`
+
+`PATIENT` only (this transfer's patient). Issues a fresh 6-digit code, resets `attempts_remaining` to 5 and `otp_expires_at` to +10 minutes, and — notably — **un-locks** a `locked` transfer back to `pending_patient_consent` (the lock is about one code's attempts being exhausted, not a final decision; use `decline` for that). Rate-limited harder than normal endpoints (`RATE_LIMIT_OTP_RESEND`, default `3/hour`) since each call sends a real email.
 
 ---
 
